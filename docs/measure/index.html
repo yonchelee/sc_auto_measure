@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NX Section Layer Thickness Analyzer - Web</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="topbar">
+    <a href="../index.html" class="back">&larr; 소개 페이지</a>
+    <h1>NX Section Layer Thickness Analyzer</h1>
+    <span class="version">web v0.1</span>
+</header>
+
+<div id="loading-overlay">
+    <div class="loading-box">
+        <div class="spinner"></div>
+        <p>OpenCV.js 로딩 중...</p>
+        <p class="note">(최초 1회, 약 10MB)</p>
+    </div>
+</div>
+
+<main class="layout">
+    <!-- ── Left: canvas ───────────────────────────────── -->
+    <section class="canvas-area">
+        <div id="drop-zone" class="drop-zone">
+            <canvas id="main-canvas"></canvas>
+            <div id="drop-hint" class="drop-hint">
+                <div class="hint-icon">📷</div>
+                <p><strong>이미지를 여기에 드래그 &amp; 드롭</strong></p>
+                <p class="hint-sub">또는 아래 버튼으로 파일 선택</p>
+                <button type="button" id="btn-open-file">파일 선택</button>
+                <input type="file" id="file-input" accept="image/*" hidden>
+                <p class="hint-sub" style="margin-top:14px;">
+                    샘플이 필요하면 <a href="../sample_section.png" download>sample_section.png</a> 다운로드
+                </p>
+            </div>
+        </div>
+    </section>
+
+    <!-- ── Right: panel ───────────────────────────────── -->
+    <aside class="panel">
+        <h2>Measurements</h2>
+
+        <div class="status-box">
+            <div class="status-row">
+                <span class="status-label">스케일:</span>
+                <span id="status-scale">미설정</span>
+            </div>
+            <div class="status-row">
+                <span class="status-label">모드:</span>
+                <span id="status-mode">대기</span>
+            </div>
+        </div>
+
+        <div class="table-wrap">
+            <table id="measurements-table">
+                <thead>
+                    <tr>
+                        <th>Layer</th>
+                        <th>Top<br>(px)</th>
+                        <th>Bot<br>(px)</th>
+                        <th>px</th>
+                        <th>mm</th>
+                    </tr>
+                </thead>
+                <tbody id="table-body">
+                    <tr class="empty-row">
+                        <td colspan="5">이미지를 불러오고<br>측정선을 그으면 채워집니다</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="btn-group">
+            <button type="button" id="btn-scale" disabled>기준선 설정</button>
+            <button type="button" id="btn-measure" disabled>측정선 그리기</button>
+        </div>
+        <div class="btn-group">
+            <button type="button" id="btn-delete" class="secondary" disabled>선택 행 삭제</button>
+            <button type="button" id="btn-clear" class="secondary" disabled>초기화</button>
+        </div>
+        <button type="button" id="btn-export" class="primary" disabled>📊 Excel로 내보내기</button>
+
+        <div class="help-box">
+            <details>
+                <summary>사용 방법</summary>
+                <ol>
+                    <li>이미지를 캔버스에 드래그&amp;드롭</li>
+                    <li><strong>기준선 설정</strong> 클릭 → 실제 길이 아는 두 점 클릭 → mm 입력</li>
+                    <li><strong>측정선 그리기</strong> 클릭 → 적층부 두 점 클릭 (수직 스냅, Shift=자유)</li>
+                    <li>자동 검출된 레이어를 확인 → <strong>Excel 내보내기</strong></li>
+                </ol>
+                <p class="note">
+                    💡 휠: 확대/축소 · 드래그: 이미지 스크롤
+                </p>
+            </details>
+        </div>
+    </aside>
+</main>
+
+<footer class="sitefoot">
+    <p>Made by
+        <a href="https://www.instagram.com/goycgo" target="_blank">@goycgo</a>
+        &nbsp;·&nbsp;
+        <a href="https://github.com/yonchelee/sc_auto_measure" target="_blank">GitHub</a>
+    </p>
+    <p class="note">브라우저 내부에서 전부 실행 · 이미지는 서버로 전송되지 않습니다</p>
+</footer>
+
+<!-- ── Scale dialog ──────────────────────────────────── -->
+<div id="scale-dialog" class="modal hidden">
+    <div class="modal-box">
+        <h3>기준선 실제 길이 입력</h3>
+        <p>클릭한 두 점의 픽셀 거리: <b id="dialog-pixel-distance">-</b></p>
+        <label for="dialog-mm">실제 길이 (mm)</label>
+        <input type="number" id="dialog-mm" step="0.001" min="0.001" value="10">
+        <div class="modal-buttons">
+            <button type="button" id="dialog-cancel" class="secondary">취소</button>
+            <button type="button" id="dialog-ok" class="primary">확인</button>
+        </div>
+    </div>
+</div>
+
+<!-- ── Toast ─────────────────────────────────────────── -->
+<div id="toast" class="toast hidden"></div>
+
+<!-- OpenCV.js (loaded lazily) -->
+<script>
+    // Show overlay until OpenCV.js finishes initialization.
+    window.Module = {
+        onRuntimeInitialized() {
+            document.getElementById('loading-overlay').classList.add('hidden');
+            window.__cvReady = true;
+            document.dispatchEvent(new CustomEvent('cv-ready'));
+        }
+    };
+</script>
+<script async src="https://docs.opencv.org/4.9.0/opencv.js"></script>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+<script src="app.js"></script>
+
+</body>
+</html>
