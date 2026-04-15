@@ -1,0 +1,2615 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NX Section Layer Thickness Analyzer</title>
+<meta name="description" content="NX 단면 이미지에서 레이어 두께를 자동 측정하는 웹 애플리케이션">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+<style>
+/* ========================================================
+   Design System & Reset
+   ======================================================== */
+:root {
+  --bg-primary: #0f1117;
+  --bg-secondary: #1a1d27;
+  --bg-tertiary: #242836;
+  --bg-hover: #2d3244;
+  --bg-active: #353a50;
+  --surface: #1e2230;
+  --surface-raised: #262b3d;
+  --border: #2e3348;
+  --border-focus: #5b8def;
+  --text-primary: #e8eaf0;
+  --text-secondary: #9ea3b5;
+  --text-muted: #6b7085;
+  --accent-blue: #5b8def;
+  --accent-blue-hover: #7aa5f7;
+  --accent-green: #4caf7d;
+  --accent-green-hover: #5fcf94;
+  --accent-red: #e05555;
+  --accent-red-hover: #f06666;
+  --accent-orange: #e8a44a;
+  --accent-purple: #9b7ff0;
+  --accent-cyan: #56c8d8;
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.4);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,0.5);
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --transition: all 0.2s ease;
+}
+
+*, *::before, *::after {
+  margin: 0; padding: 0; box-sizing: border-box;
+}
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  overflow: hidden;
+  height: 100vh;
+  width: 100vw;
+}
+
+/* ========================================================
+   Layout
+   ======================================================== */
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+#top-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  min-height: 48px;
+  flex-shrink: 0;
+}
+
+#top-bar .app-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--accent-blue);
+  letter-spacing: -0.3px;
+  white-space: nowrap;
+}
+
+.zoom-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 16px;
+  padding: 3px 8px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+}
+
+.zoom-controls label {
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+#zoom-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  min-width: 42px;
+  text-align: center;
+}
+
+.zoom-hint {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-left: 4px;
+}
+
+#main-content {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* ========================================================
+   Canvas Area
+   ======================================================== */
+#canvas-area {
+  flex: 3;
+  position: relative;
+  background: #141620;
+  overflow: hidden;
+  min-width: 400px;
+}
+
+#canvas-area canvas {
+  position: absolute;
+  top: 0; left: 0;
+  cursor: grab;
+}
+
+#canvas-area.mode-scale canvas,
+#canvas-area.mode-measure canvas {
+  cursor: crosshair;
+}
+
+#canvas-area.panning canvas {
+  cursor: grabbing;
+}
+
+#drop-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: rgba(91, 141, 239, 0.08);
+  border: 3px dashed var(--accent-blue);
+  border-radius: var(--radius-lg);
+  margin: 20px;
+  z-index: 5;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+
+#drop-overlay.visible {
+  opacity: 1;
+}
+
+#drop-overlay .drop-icon {
+  font-size: 56px;
+  margin-bottom: 12px;
+  opacity: 0.7;
+}
+
+#drop-overlay .drop-text {
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--accent-blue);
+}
+
+#canvas-placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  gap: 12px;
+}
+
+#canvas-placeholder .placeholder-icon {
+  font-size: 64px;
+  opacity: 0.4;
+}
+
+#canvas-placeholder .placeholder-text {
+  font-size: 15px;
+  opacity: 0.7;
+}
+
+#btn-delete-layer-float {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 10;
+  display: none;
+}
+
+/* ========================================================
+   Right Panel
+   ======================================================== */
+#right-panel {
+  width: 360px;
+  min-width: 300px;
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-secondary);
+  border-left: 1px solid var(--border);
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+#right-panel::-webkit-scrollbar {
+  width: 6px;
+}
+
+#right-panel::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+#right-panel::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+
+.panel-section {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.section-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.section-label .step-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--accent-blue);
+  color: white;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+/* ========================================================
+   Buttons
+   ======================================================== */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 14px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: var(--transition);
+  white-space: nowrap;
+}
+
+.btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-focus);
+}
+
+.btn:active {
+  transform: scale(0.97);
+}
+
+.btn-sm {
+  padding: 5px 10px;
+  font-size: 11px;
+}
+
+.btn-primary {
+  background: var(--accent-blue);
+  border-color: var(--accent-blue);
+  color: #fff;
+}
+
+.btn-primary:hover {
+  background: var(--accent-blue-hover);
+  border-color: var(--accent-blue-hover);
+}
+
+.btn-success {
+  background: var(--accent-green);
+  border-color: var(--accent-green);
+  color: #fff;
+}
+
+.btn-success:hover {
+  background: var(--accent-green-hover);
+  border-color: var(--accent-green-hover);
+}
+
+.btn-danger {
+  background: var(--accent-red);
+  border-color: var(--accent-red);
+  color: #fff;
+}
+
+.btn-danger:hover {
+  background: var(--accent-red-hover);
+  border-color: var(--accent-red-hover);
+}
+
+.btn-undo {
+  background: var(--accent-purple);
+  border-color: var(--accent-purple);
+  color: #fff;
+}
+
+.btn-undo:hover {
+  background: #ae95f5;
+  border-color: #ae95f5;
+}
+
+.btn-block {
+  display: flex;
+  width: 100%;
+}
+
+.btn-row {
+  display: flex;
+  gap: 8px;
+}
+
+.btn-row > .btn {
+  flex: 1;
+}
+
+/* ========================================================
+   Inputs
+   ======================================================== */
+.info-label {
+  font-size: 11px;
+  color: var(--text-secondary);
+  padding: 4px 0;
+}
+
+.filter-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+.filter-row label {
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.filter-row input[type="number"] {
+  width: 72px;
+  padding: 4px 6px;
+  font-family: inherit;
+  font-size: 11px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  outline: none;
+  transition: var(--transition);
+}
+
+.filter-row input[type="number"]:focus {
+  border-color: var(--accent-blue);
+  box-shadow: 0 0 0 2px rgba(91,141,239,0.2);
+}
+
+/* ========================================================
+   Measurement Table
+   ======================================================== */
+.table-wrapper {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-height: 120px;
+}
+
+.table-wrapper::-webkit-scrollbar {
+  width: 5px;
+}
+
+.table-wrapper::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+
+#measurement-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+
+#measurement-table thead th {
+  position: sticky;
+  top: 0;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-weight: 600;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 8px 6px;
+  text-align: right;
+  border-bottom: 2px solid var(--border);
+  z-index: 1;
+}
+
+#measurement-table thead th:first-child {
+  text-align: left;
+}
+
+#measurement-table tbody tr {
+  transition: background 0.15s ease;
+  cursor: pointer;
+}
+
+#measurement-table tbody tr:nth-child(even) {
+  background: rgba(255,255,255,0.015);
+}
+
+#measurement-table tbody tr:hover {
+  background: var(--bg-hover);
+}
+
+#measurement-table tbody tr.selected {
+  background: rgba(91,141,239,0.15);
+  outline: 1px solid rgba(91,141,239,0.3);
+}
+
+#measurement-table tbody tr.summary-row {
+  background: var(--bg-tertiary);
+  font-weight: 700;
+  border-top: 2px solid var(--border);
+  cursor: default;
+}
+
+#measurement-table tbody td {
+  padding: 7px 6px;
+  text-align: right;
+  color: var(--text-primary);
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+
+#measurement-table tbody td:first-child {
+  text-align: left;
+  color: var(--accent-cyan);
+  font-weight: 500;
+}
+
+#measurement-table tbody td input.layer-name-input {
+  background: transparent;
+  border: none;
+  border-bottom: 1px dashed var(--text-muted);
+  color: var(--accent-cyan);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  width: 100%;
+  outline: none;
+  padding: 1px 0;
+}
+
+#measurement-table tbody td input.layer-name-input:focus {
+  border-bottom-color: var(--accent-blue);
+}
+
+.selection-sum-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent-blue);
+  padding: 6px 0;
+  display: none;
+}
+
+.selection-sum-label.visible {
+  display: block;
+}
+
+/* ========================================================
+   Modal / Dialog
+   ======================================================== */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+
+.modal-overlay.active {
+  opacity: 1;
+  pointer-events: all;
+}
+
+.modal {
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  min-width: 340px;
+  max-width: 460px;
+  box-shadow: var(--shadow-lg);
+  transform: translateY(10px);
+  transition: transform 0.2s ease;
+}
+
+.modal-overlay.active .modal {
+  transform: translateY(0);
+}
+
+.modal h3 {
+  font-size: 16px;
+  font-weight: 700;
+  margin-bottom: 12px;
+  color: var(--text-primary);
+}
+
+.modal p {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: 16px;
+  line-height: 1.6;
+}
+
+.modal .form-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.modal .form-row label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  min-width: 80px;
+}
+
+.modal .form-row input[type="number"] {
+  flex: 1;
+  padding: 8px 10px;
+  font-family: inherit;
+  font-size: 13px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  outline: none;
+}
+
+.modal .form-row input[type="number"]:focus {
+  border-color: var(--accent-blue);
+}
+
+.modal .radio-group {
+  display: flex;
+  gap: 16px;
+}
+
+.modal .radio-group label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--text-primary);
+  min-width: auto;
+}
+
+.modal .radio-group input[type="radio"] {
+  accent-color: var(--accent-blue);
+}
+
+.modal-buttons {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 20px;
+}
+
+/* Color swatch button */
+.color-swatch {
+  width: 36px;
+  height: 24px;
+  border: 2px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.color-swatch:hover {
+  border-color: var(--text-secondary);
+  transform: scale(1.05);
+}
+
+/* ========================================================
+   Status bar
+   ======================================================== */
+#status-bar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 5px 16px;
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-muted);
+  min-height: 28px;
+  flex-shrink: 0;
+}
+
+#status-message {
+  flex: 1;
+}
+
+#mode-indicator {
+  padding: 2px 10px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 600;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+#mode-indicator.active {
+  background: rgba(91,141,239,0.2);
+  color: var(--accent-blue);
+}
+
+/* ========================================================
+   Loading overlay
+   ======================================================== */
+#opencv-loading {
+  position: fixed;
+  inset: 0;
+  background: var(--bg-primary);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  transition: opacity 0.4s ease;
+}
+
+#opencv-loading.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.loader-ring {
+  width: 48px;
+  height: 48px;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent-blue);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin-bottom: 16px;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.loader-text {
+  font-size: 14px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+/* ========================================================
+   Resize handle (panel)
+   ======================================================== */
+#panel-resizer {
+  width: 4px;
+  cursor: col-resize;
+  background: var(--border);
+  transition: background 0.2s;
+  flex-shrink: 0;
+}
+
+#panel-resizer:hover {
+  background: var(--accent-blue);
+}
+
+/* utility */
+.mt-4 { margin-top: 4px; }
+.mt-8 { margin-top: 8px; }
+.gap-8 { gap: 8px; }
+.hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+<!-- Loading Overlay -->
+<div id="opencv-loading">
+  <div class="loader-ring"></div>
+  <div class="loader-text">OpenCV.js 로딩 중...</div>
+</div>
+
+<!-- App -->
+<div id="app">
+  <!-- Top Bar -->
+  <div id="top-bar">
+    <span class="app-title">NX Section Layer Thickness Analyzer</span>
+    <div class="zoom-controls">
+      <label>Zoom:</label>
+      <button class="btn btn-sm" id="btn-zoom-out" title="Zoom Out">−</button>
+      <span id="zoom-label">100%</span>
+      <button class="btn btn-sm" id="btn-zoom-in" title="Zoom In">+</button>
+      <button class="btn btn-sm" id="btn-zoom-fit" title="Fit to View">Fit</button>
+      <span class="zoom-hint">(Ctrl + Scroll)</span>
+    </div>
+  </div>
+
+  <!-- Main Content -->
+  <div id="main-content">
+    <!-- Canvas Area -->
+    <div id="canvas-area"
+         ondragover="event.preventDefault()"
+         ondragleave="app && app.onDragLeave(event)">
+      <div id="canvas-placeholder">
+        <div class="placeholder-icon">🖼️</div>
+        <div class="placeholder-text">이미지를 드래그하거나 파일을 여세요</div>
+      </div>
+      <canvas id="main-canvas"></canvas>
+      <div id="drop-overlay">
+        <div class="drop-icon">📥</div>
+        <div class="drop-text">이미지를 여기에 드롭하세요</div>
+      </div>
+      <button class="btn btn-danger btn-sm" id="btn-delete-layer-float" style="display:none;">삭제</button>
+    </div>
+
+    <!-- Panel Resizer -->
+    <div id="panel-resizer"></div>
+
+    <!-- Right Panel -->
+    <div id="right-panel">
+      <!-- Step 1: Image -->
+      <div class="panel-section">
+        <div class="section-label"><span class="step-badge">1</span> 이미지</div>
+        <button class="btn btn-primary btn-block" id="btn-open-image">📂 이미지 열기</button>
+        <input type="file" id="file-input" accept=".png,.jpg,.jpeg,.bmp,.tif,.tiff" style="display:none;">
+      </div>
+
+      <!-- Step 2: Scale -->
+      <div class="panel-section">
+        <div class="section-label"><span class="step-badge">2</span> 기준선 (스케일)</div>
+        <button class="btn btn-block" id="btn-set-scale">📏 기준선 설정</button>
+        <div class="info-label" id="scale-label">mm/pixel: n/a (기준선 미설정)</div>
+      </div>
+
+      <!-- Step 3: Dimensions -->
+      <div class="panel-section">
+        <div class="section-label"><span class="step-badge">3</span> 치수</div>
+        <div class="btn-row">
+          <button class="btn" id="btn-add-dim">📐 치수 추가</button>
+          <button class="btn" id="btn-add-sum-dim">∑ 합계 치수 추가</button>
+        </div>
+        <div class="filter-row">
+          <label>최소 두께:</label>
+          <input type="number" id="spin-min-thickness" value="5" min="0" max="100" step="1"> px
+          <label>선 병합:</label>
+          <input type="number" id="spin-line-merge" value="6" min="0" max="50" step="1"> px
+        </div>
+        <div class="info-label mt-4" id="mode-label">모드: 탐색</div>
+      </div>
+
+      <!-- Measurement Results -->
+      <div class="panel-section" style="flex:1; display:flex; flex-direction:column;">
+        <div class="section-label">📊 측정 결과</div>
+        <div class="table-wrapper">
+          <table id="measurement-table">
+            <thead>
+              <tr>
+                <th>Layer</th>
+                <th>Top (px)</th>
+                <th>Bottom (px)</th>
+                <th>Thickness (px)</th>
+                <th>Thickness (mm)</th>
+              </tr>
+            </thead>
+            <tbody id="table-body"></tbody>
+          </table>
+        </div>
+        <div class="selection-sum-label" id="selection-sum-label"></div>
+        <div class="btn-row mt-4">
+          <button class="btn btn-sm" id="btn-delete-row">🗑️ 선택 행 삭제</button>
+          <button class="btn btn-sm btn-undo hidden" id="btn-undo">↩ 되돌리기</button>
+        </div>
+      </div>
+
+      <!-- Bottom Actions -->
+      <div class="panel-section">
+        <button class="btn btn-success btn-block" id="btn-export" style="margin-bottom:8px;">📊 Excel로 내보내기</button>
+        <div class="btn-row">
+          <button class="btn btn-sm" id="btn-color-settings">🎨 색상 설정</button>
+          <button class="btn btn-sm" id="btn-reset" style="color:var(--accent-red);">🔄 초기화</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Status Bar -->
+  <div id="status-bar">
+    <span id="status-message">이미지를 드래그하거나 파일을 여세요.</span>
+    <span id="mode-indicator">탐색</span>
+  </div>
+</div>
+
+<!-- Scale Dialog -->
+<div class="modal-overlay" id="scale-dialog-overlay">
+  <div class="modal">
+    <h3>기준선 실제 길이 입력</h3>
+    <p id="scale-dialog-info"></p>
+    <div class="form-row">
+      <label>축 방향:</label>
+      <div class="radio-group">
+        <label><input type="radio" name="axis" value="x" id="axis-x"> X축 (수평)</label>
+        <label><input type="radio" name="axis" value="y" id="axis-y" checked> Y축 (수직)</label>
+      </div>
+    </div>
+    <div class="form-row">
+      <label>실제 길이:</label>
+      <input type="number" id="scale-real-mm" value="10" min="0.001" max="10000" step="0.1">
+      <span style="color:var(--text-secondary); font-size:12px;">mm</span>
+    </div>
+    <div class="modal-buttons">
+      <button class="btn" id="scale-dialog-cancel">취소</button>
+      <button class="btn btn-primary" id="scale-dialog-ok">확인</button>
+    </div>
+  </div>
+</div>
+
+<!-- Color Settings Dialog -->
+<div class="modal-overlay" id="color-dialog-overlay">
+  <div class="modal">
+    <h3>오버레이 색상 설정</h3>
+    <div class="form-row">
+      <label>선 색상:</label>
+      <input type="color" id="color-line" value="#ff5050" class="color-swatch">
+    </div>
+    <div class="form-row">
+      <label>텍스트 색상:</label>
+      <input type="color" id="color-text" value="#ffc83c" class="color-swatch">
+    </div>
+    <div class="modal-buttons">
+      <button class="btn" id="color-dialog-cancel">취소</button>
+      <button class="btn btn-primary" id="color-dialog-ok">확인</button>
+    </div>
+  </div>
+</div>
+
+<!-- Alert/Confirm Dialog -->
+<div class="modal-overlay" id="alert-dialog-overlay">
+  <div class="modal">
+    <h3 id="alert-dialog-title">알림</h3>
+    <p id="alert-dialog-message"></p>
+    <div class="modal-buttons">
+      <button class="btn hidden" id="alert-dialog-cancel">취소</button>
+      <button class="btn btn-primary" id="alert-dialog-ok">확인</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ================================================================
+   Data Model
+   ================================================================ */
+class Layer {
+  constructor(name, yTopPx, yBottomPx, thicknessPx, thicknessMm = 0,
+              xTopPx = 0, xBottomPx = 0) {
+    this.name = name;
+    this.yTopPx = yTopPx;
+    this.yBottomPx = yBottomPx;
+    this.thicknessPx = thicknessPx;
+    this.thicknessMm = thicknessMm;
+    this.xTopPx = xTopPx;
+    this.xBottomPx = xBottomPx;
+  }
+  recompute(mmPerPixel) {
+    this.thicknessMm = mmPerPixel != null ? this.thicknessPx * mmPerPixel : 0;
+  }
+  clone() {
+    return new Layer(this.name, this.yTopPx, this.yBottomPx,
+                     this.thicknessPx, this.thicknessMm,
+                     this.xTopPx, this.xBottomPx);
+  }
+}
+
+class Measurement {
+  constructor() {
+    this.imagePath = null;
+    this.layers = [];
+    this.mmPerPixel = null;
+  }
+  clear() { this.layers = []; }
+  replaceLayers(layers) {
+    this.layers = layers.map(l => l.clone());
+    this.recomputeAll();
+  }
+  recomputeAll() {
+    for (const l of this.layers) l.recompute(this.mmPerPixel);
+  }
+}
+
+/* ================================================================
+   Scale Calibrator
+   ================================================================ */
+class ScaleCalibrator {
+  constructor() { this.reset(); }
+  reset() {
+    this.p1 = null; this.p2 = null;
+    this.realMm = null; this.mmPerPixel = null;
+    this.axis = 'y';
+  }
+  get isCalibrated() { return this.mmPerPixel != null && this.mmPerPixel > 0; }
+  setReference(p1, p2, realMm) {
+    if (realMm <= 0) throw new Error('realMm must be positive');
+    const d = Math.hypot(p2[0] - p1[0], p2[1] - p1[1]);
+    if (d <= 0) throw new Error('Reference line has zero length');
+    this.p1 = p1; this.p2 = p2;
+    this.realMm = realMm;
+    this.mmPerPixel = realMm / d;
+    return this.mmPerPixel;
+  }
+  toMm(px) { return this.isCalibrated ? px * this.mmPerPixel : 0; }
+}
+
+/* ================================================================
+   Edge Detector (OpenCV.js)
+   ================================================================ */
+class EdgeDetector {
+  static autoCannyThresholds(gray, sigma = 0.33) {
+    const data = gray.data;
+    const sorted = Array.from(data).sort((a, b) => a - b);
+    const median = sorted[Math.floor(sorted.length / 2)];
+    let lower = Math.max(0, Math.round((1.0 - sigma) * median));
+    let upper = Math.min(255, Math.round((1.0 + sigma) * median));
+    if (upper <= lower) upper = lower + 1;
+    return [lower, upper];
+  }
+
+  static computeDirectionalEdgeMap(mat, p1, p2) {
+    const gray = new cv.Mat();
+    if (mat.channels() >= 3) {
+      cv.cvtColor(mat, gray, cv.COLOR_RGBA2GRAY);
+    } else {
+      mat.copyTo(gray);
+    }
+    const blurred = new cv.Mat();
+    cv.GaussianBlur(gray, blurred, new cv.Size(3, 3), 0);
+
+    const dx = p2[0] - p1[0];
+    const dy = p2[1] - p1[1];
+    const length = Math.max(Math.abs(dx), Math.abs(dy), 1.0);
+    const ux = dx / length, uy = dy / length;
+
+    const sobelX = new cv.Mat();
+    const sobelY = new cv.Mat();
+    cv.Sobel(blurred, sobelX, cv.CV_64F, 1, 0, 3);
+    cv.Sobel(blurred, sobelY, cv.CV_64F, 0, 1, 3);
+
+    const h = sobelX.rows, w = sobelX.cols;
+    const result = new cv.Mat(h, w, cv.CV_8U, new cv.Scalar(0));
+
+    const sxData = new Float64Array(sobelX.data64F);
+    const syData = new Float64Array(sobelY.data64F);
+
+    let positives = [];
+    for (let i = 0; i < sxData.length; i++) {
+      const v = Math.abs(sxData[i] * ux + syData[i] * uy);
+      if (v > 0) positives.push(v);
+    }
+    positives.sort((a, b) => a - b);
+    const medianVal = positives.length > 0
+      ? positives[Math.floor(positives.length / 2)] : 1.0;
+    const threshold = medianVal * 1.0;
+
+    for (let i = 0; i < sxData.length; i++) {
+      const v = Math.abs(sxData[i] * ux + syData[i] * uy);
+      result.data[i] = v > threshold ? 255 : 0;
+    }
+
+    gray.delete(); blurred.delete();
+    sobelX.delete(); sobelY.delete();
+    return result;
+  }
+
+  static sampleAlongLine(edgeMap, p1, p2) {
+    const [x1, y1] = p1;
+    const [x2, y2] = p2;
+    let length = Math.round(Math.max(Math.abs(x2 - x1), Math.abs(y2 - y1))) + 1;
+    length = Math.max(length, 2);
+    const h = edgeMap.rows, w = edgeMap.cols;
+    const samples = [];
+    for (let i = 0; i < length; i++) {
+      const frac = i / (length - 1);
+      const x = Math.round(x1 + (x2 - x1) * frac);
+      const y = Math.round(y1 + (y2 - y1) * frac);
+      const cx = Math.max(0, Math.min(x, w - 1));
+      const cy = Math.max(0, Math.min(y, h - 1));
+      samples.push(edgeMap.ucharAt(cy, cx));
+    }
+    return samples;
+  }
+
+  static findBoundaries(samples, mergeGap = 2) {
+    const hits = [];
+    for (let i = 0; i < samples.length; i++) {
+      if (samples[i] > 0) hits.push(i);
+    }
+    if (hits.length === 0) return [];
+    const groups = [[hits[0]]];
+    for (let i = 1; i < hits.length; i++) {
+      if (hits[i] - groups[groups.length - 1][groups[groups.length - 1].length - 1] <= mergeGap) {
+        groups[groups.length - 1].push(hits[i]);
+      } else {
+        groups.push([hits[i]]);
+      }
+    }
+    return groups.map(g => g.reduce((a, b) => a + b, 0) / g.length);
+  }
+
+  static sampleIntensity(gray, p1, p2, tTotal, tA, tB) {
+    const [x1, y1] = p1;
+    const [x2, y2] = p2;
+    const h = gray.rows, w = gray.cols;
+    const gap = tB - tA;
+    const n = Math.max(Math.round(gap), 3);
+    let sum = 0;
+    for (let i = 0; i < n; i++) {
+      const t = tA + (tB - tA) * i / (n - 1);
+      const frac = tTotal > 0 ? t / tTotal : 0;
+      const x = Math.max(0, Math.min(Math.round(x1 + (x2 - x1) * frac), w - 1));
+      const y = Math.max(0, Math.min(Math.round(y1 + (y2 - y1) * frac), h - 1));
+      sum += gray.ucharAt(y, x);
+    }
+    return sum / n;
+  }
+
+  static computeBgIntensity(gray, p1, p2, tTotal) {
+    const [x1, y1] = p1;
+    const [x2, y2] = p2;
+    const h = gray.rows, w = gray.cols;
+    const length = Math.max(Math.round(tTotal), 2);
+    const vals = [];
+    for (let i = 0; i < length; i++) {
+      const t = tTotal * i / (length - 1);
+      const frac = tTotal > 0 ? t / tTotal : 0;
+      const x = Math.max(0, Math.min(Math.round(x1 + (x2 - x1) * frac), w - 1));
+      const y = Math.max(0, Math.min(Math.round(y1 + (y2 - y1) * frac), h - 1));
+      vals.push(gray.ucharAt(y, x));
+    }
+    vals.sort((a, b) => a - b);
+    return vals[Math.floor(vals.length * 0.8)];
+  }
+
+  static filterLineBoundaries(boundariesT, gray, p1, p2, tTotal,
+                               lineMergePx = 6.0, darkRatio = 0.7) {
+    if (boundariesT.length < 2) return [...boundariesT];
+    const bg = this.computeBgIntensity(gray, p1, p2, tTotal);
+    const darkThreshold = bg * darkRatio;
+    const n = boundariesT.length;
+    const darkGap = [];
+    for (let i = 0; i < n - 1; i++) {
+      const avg = this.sampleIntensity(gray, p1, p2, tTotal,
+                                        boundariesT[i], boundariesT[i + 1]);
+      darkGap.push(avg < darkThreshold);
+    }
+    const result = [];
+    let i = 0;
+    while (i < n) {
+      if (i < n - 1 && darkGap[i]) {
+        const gap = boundariesT[i + 1] - boundariesT[i];
+        if (gap <= lineMergePx) {
+          result.push((boundariesT[i] + boundariesT[i + 1]) / 2.0);
+        }
+        i += 2;
+      } else {
+        result.push(boundariesT[i]);
+        i++;
+      }
+    }
+    return result;
+  }
+
+  static detectLayers(mat, p1, p2, { minThicknessPx = 2.0, mergeGap = 2,
+                                      lineMergePx = 6.0 } = {}) {
+    const edgeMap = this.computeDirectionalEdgeMap(mat, p1, p2);
+    const samples = this.sampleAlongLine(edgeMap, p1, p2);
+    if (samples.length === 0) { edgeMap.delete(); return []; }
+
+    let boundariesT = this.findBoundaries(samples, mergeGap);
+    if (boundariesT.length < 2) { edgeMap.delete(); return []; }
+
+    const gray = new cv.Mat();
+    if (mat.channels() >= 3) {
+      cv.cvtColor(mat, gray, cv.COLOR_RGBA2GRAY);
+    } else {
+      mat.copyTo(gray);
+    }
+
+    const [x1, y1] = p1;
+    const [x2, y2] = p2;
+    const total = samples.length - 1 > 0 ? samples.length - 1 : 1;
+
+    boundariesT = this.filterLineBoundaries(
+      boundariesT, gray, p1, p2, total, lineMergePx
+    );
+    gray.delete();
+    edgeMap.delete();
+
+    if (boundariesT.length < 2) return [];
+
+    function tToXY(t) {
+      const frac = t / total;
+      return [x1 + (x2 - x1) * frac, y1 + (y2 - y1) * frac];
+    }
+
+    const layers = [];
+    for (let i = 0; i < boundariesT.length - 1; i++) {
+      const [xt, yt] = tToXY(boundariesT[i]);
+      const [xb, yb] = tToXY(boundariesT[i + 1]);
+      const thicknessPx = Math.hypot(xb - xt, yb - yt);
+      if (thicknessPx < minThicknessPx) continue;
+      layers.push(new Layer(
+        `Layer ${layers.length + 1}`,
+        yt, yb, thicknessPx, 0, xt, xb
+      ));
+    }
+    return layers;
+  }
+
+  static computeEdgeMap(mat) {
+    const gray = new cv.Mat();
+    if (mat.channels() >= 3) {
+      cv.cvtColor(mat, gray, cv.COLOR_RGBA2GRAY);
+    } else {
+      mat.copyTo(gray);
+    }
+    const blurred = new cv.Mat();
+    cv.GaussianBlur(gray, blurred, new cv.Size(3, 3), 0);
+    const [lo, hi] = this.autoCannyThresholds(blurred);
+    const edges = new cv.Mat();
+    cv.Canny(blurred, edges, lo, hi);
+    gray.delete(); blurred.delete();
+    return edges;
+  }
+}
+
+/* ================================================================
+   Image Canvas — Canvas 2D based renderer
+   ================================================================ */
+class ImageCanvas {
+  constructor(canvasEl, containerEl) {
+    this.canvas = canvasEl;
+    this.container = containerEl;
+    this.ctx = canvasEl.getContext('2d');
+
+    // Image state
+    this.image = null;       // HTMLImageElement
+    this.imageMat = null;    // cv.Mat (for OpenCV processing)
+    this.edgeMap = null;     // cv.Mat (Canny edges)
+    this.imageWidth = 0;
+    this.imageHeight = 0;
+
+    // View transform
+    this.offsetX = 0;
+    this.offsetY = 0;
+    this.zoom = 1.0;
+
+    // Interaction
+    this.mode = 'idle'; // 'idle', 'scale', 'measure'
+    this.pendingPoint = null;
+    this.isPanning = false;
+    this.lastPanX = 0;
+    this.lastPanY = 0;
+    this.measureAxis = 'y';
+    this.snapRadius = 15;
+
+    // Overlay data
+    this.scaleLine = null;    // {p1, p2}
+    this.measureLine = null;  // {p1, p2}
+    this.layers = [];
+    this.selectedLayerIdx = -1;
+    this.hoveredLayerIdx = -1;
+    this.lineColor = '#ff5050';
+    this.textColor = '#ffc83c';
+    this.arrowOffsets = [];
+    this.currentOrientation = 'vertical';
+
+    // Dimension drag state
+    this._dimDrag = null;
+
+    // Callbacks
+    this.onImageLoaded = null;
+    this.onScaleLineReady = null;
+    this.onMeasureLineReady = null;
+    this.onZoomChanged = null;
+    this.onLayerClicked = null;
+    this.onStatusMessage = null;
+
+    this._setupEvents();
+    this._resize();
+  }
+
+  _setupEvents() {
+    window.addEventListener('resize', () => this._resize());
+    const c = this.canvas;
+
+    c.addEventListener('mousedown', (e) => this._onMouseDown(e));
+    c.addEventListener('mousemove', (e) => this._onMouseMove(e));
+    c.addEventListener('mouseup', (e) => this._onMouseUp(e));
+    c.addEventListener('wheel', (e) => this._onWheel(e), { passive: false });
+
+    // Drag & drop
+    this.container.addEventListener('dragenter', (e) => {
+      e.preventDefault();
+      document.getElementById('drop-overlay').classList.add('visible');
+    });
+    this.container.addEventListener('dragover', (e) => e.preventDefault());
+    this.container.addEventListener('dragleave', (e) => {
+      // Only hide if left the container
+      if (!this.container.contains(e.relatedTarget)) {
+        document.getElementById('drop-overlay').classList.remove('visible');
+      }
+    });
+    this.container.addEventListener('drop', (e) => {
+      e.preventDefault();
+      document.getElementById('drop-overlay').classList.remove('visible');
+      const files = e.dataTransfer.files;
+      if (files.length > 0) {
+        const f = files[0];
+        if (/\.(png|jpe?g|bmp|tiff?)$/i.test(f.name)) {
+          this.loadImageFile(f);
+        }
+      }
+    });
+  }
+
+  _resize() {
+    const rect = this.container.getBoundingClientRect();
+    this.canvas.width = rect.width;
+    this.canvas.height = rect.height;
+    this.render();
+  }
+
+  /* -- Image loading -- */
+  loadImageFile(file) {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        this.image = img;
+        this.imageWidth = img.width;
+        this.imageHeight = img.height;
+
+        // Create cv.Mat from image
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = img.width;
+        tempCanvas.height = img.height;
+        const tmpCtx = tempCanvas.getContext('2d');
+        tmpCtx.drawImage(img, 0, 0);
+        const imageData = tmpCtx.getImageData(0, 0, img.width, img.height);
+
+        if (this.imageMat) this.imageMat.delete();
+        if (this.edgeMap) this.edgeMap.delete();
+        this.imageMat = cv.matFromImageData(imageData);
+        this.edgeMap = EdgeDetector.computeEdgeMap(this.imageMat);
+
+        this.clearOverlays();
+        this.zoomFit();
+
+        if (this.onImageLoaded) this.onImageLoaded(file.name);
+        if (this.onStatusMessage) this.onStatusMessage(`이미지 로드: ${file.name}`);
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  clearOverlays() {
+    this.scaleLine = null;
+    this.measureLine = null;
+    this.layers = [];
+    this.selectedLayerIdx = -1;
+    this.hoveredLayerIdx = -1;
+    this.arrowOffsets = [];
+  }
+
+  /* -- View transform -- */
+  screenToImage(sx, sy) {
+    return [
+      (sx - this.offsetX) / this.zoom,
+      (sy - this.offsetY) / this.zoom
+    ];
+  }
+
+  imageToScreen(ix, iy) {
+    return [
+      ix * this.zoom + this.offsetX,
+      iy * this.zoom + this.offsetY
+    ];
+  }
+
+  _applyZoom(factor, cx, cy) {
+    const [ix, iy] = this.screenToImage(cx, cy);
+    this.zoom *= factor;
+    this.zoom = Math.max(0.05, Math.min(50, this.zoom));
+    this.offsetX = cx - ix * this.zoom;
+    this.offsetY = cy - iy * this.zoom;
+    if (this.onZoomChanged) this.onZoomChanged(Math.round(this.zoom * 100));
+    this.render();
+  }
+
+  zoomIn() {
+    const cx = this.canvas.width / 2, cy = this.canvas.height / 2;
+    this._applyZoom(1.25, cx, cy);
+  }
+
+  zoomOut() {
+    const cx = this.canvas.width / 2, cy = this.canvas.height / 2;
+    this._applyZoom(0.8, cx, cy);
+  }
+
+  zoomFit() {
+    if (!this.image) return;
+    const cw = this.canvas.width, ch = this.canvas.height;
+    const s = Math.min(cw / this.imageWidth, ch / this.imageHeight) * 0.95;
+    this.zoom = s;
+    this.offsetX = (cw - this.imageWidth * s) / 2;
+    this.offsetY = (ch - this.imageHeight * s) / 2;
+    if (this.onZoomChanged) this.onZoomChanged(Math.round(this.zoom * 100));
+    this.render();
+  }
+
+  setMode(mode) {
+    this.mode = mode;
+    this.pendingPoint = null;
+    const area = this.container;
+    area.classList.remove('mode-scale', 'mode-measure');
+    if (mode === 'scale') area.classList.add('mode-scale');
+    else if (mode === 'measure') area.classList.add('mode-measure');
+
+    const labels = { idle: '모드: 탐색', scale: '모드: 기준선 설정 (두 점 클릭)',
+                     measure: '모드: 측정선 (두 점 클릭)' };
+    if (this.onStatusMessage) this.onStatusMessage(labels[mode] || '');
+  }
+
+  /* -- Edge snapping -- */
+  snapToEdge(ix, iy) {
+    if (!this.edgeMap) return [ix, iy];
+    const r = this.snapRadius;
+    const h = this.edgeMap.rows, w = this.edgeMap.cols;
+    const x0 = Math.max(Math.round(ix) - r, 0);
+    const y0 = Math.max(Math.round(iy) - r, 0);
+    const x1 = Math.min(Math.round(ix) + r + 1, w);
+    const y1 = Math.min(Math.round(iy) + r + 1, h);
+
+    let bestDist = Infinity, bestX = ix, bestY = iy;
+    for (let y = y0; y < y1; y++) {
+      for (let x = x0; x < x1; x++) {
+        if (this.edgeMap.ucharAt(y, x) > 0) {
+          const d = (x - ix) ** 2 + (y - iy) ** 2;
+          if (d < bestDist) {
+            bestDist = d;
+            bestX = x;
+            bestY = y;
+          }
+        }
+      }
+    }
+    return [bestX, bestY];
+  }
+
+  /* -- Mouse handling -- */
+  _getLayerAtScreen(sx, sy) {
+    const [ix, iy] = this.screenToImage(sx, sy);
+    const tickHalf = 20;
+    for (let idx = 0; idx < this.layers.length; idx++) {
+      const l = this.layers[idx];
+      if (this.currentOrientation === 'vertical') {
+        const cx = (l.xTopPx + l.xBottomPx) / 2;
+        const yMin = Math.min(l.yTopPx, l.yBottomPx);
+        const yMax = Math.max(l.yTopPx, l.yBottomPx);
+        if (ix >= cx - tickHalf && ix <= cx + tickHalf &&
+            iy >= yMin && iy <= yMax) return idx;
+      } else {
+        const cy = (l.yTopPx + l.yBottomPx) / 2;
+        const xMin = Math.min(l.xTopPx, l.xBottomPx);
+        const xMax = Math.max(l.xTopPx, l.xBottomPx);
+        if (iy >= cy - tickHalf && iy <= cy + tickHalf &&
+            ix >= xMin && ix <= xMax) return idx;
+      }
+    }
+    return -1;
+  }
+
+  _getDimHandleAt(sx, sy) {
+    const [ix, iy] = this.screenToImage(sx, sy);
+    const tickHalf = 20;
+    const dimOffset = 16;
+    const handleW = 24;
+    for (let idx = 0; idx < this.layers.length; idx++) {
+      const l = this.layers[idx];
+      const off = (this.arrowOffsets[idx] || 0);
+      if (this.currentOrientation === 'vertical') {
+        const cx = (l.xTopPx + l.xBottomPx) / 2;
+        const ax = cx + tickHalf + dimOffset + off;
+        if (ix >= ax - handleW / 2 && ix <= ax + handleW / 2 &&
+            iy >= l.yTopPx && iy <= l.yBottomPx) return idx;
+      } else {
+        const cy = (l.yTopPx + l.yBottomPx) / 2;
+        const ay = cy + tickHalf + dimOffset + off;
+        const xMin = Math.min(l.xTopPx, l.xBottomPx);
+        const xMax = Math.max(l.xTopPx, l.xBottomPx);
+        if (ix >= xMin && ix <= xMax &&
+            iy >= ay - handleW / 2 && iy <= ay + handleW / 2) return idx;
+      }
+    }
+    return -1;
+  }
+
+  _onMouseDown(e) {
+    const rect = this.canvas.getBoundingClientRect();
+    const sx = e.clientX - rect.left;
+    const sy = e.clientY - rect.top;
+
+    if (this.mode === 'idle') {
+      // Check dim drag handle
+      const dimIdx = this._getDimHandleAt(sx, sy);
+      if (dimIdx >= 0 && e.button === 0) {
+        this._dimDrag = { idx: dimIdx, lastSx: sx, lastSy: sy };
+        return;
+      }
+      // Check layer click
+      if (e.button === 0) {
+        const layerIdx = this._getLayerAtScreen(sx, sy);
+        if (layerIdx >= 0) {
+          if (this.onLayerClicked) this.onLayerClicked(layerIdx);
+          return;
+        }
+      }
+      // Panning
+      if (e.button === 0) {
+        this.isPanning = true;
+        this.lastPanX = e.clientX;
+        this.lastPanY = e.clientY;
+        this.container.classList.add('panning');
+      }
+      return;
+    }
+
+    // Scale or measure mode
+    if (e.button !== 0) return;
+    const [ix, iy] = this.screenToImage(sx, sy);
+    let pt = e.altKey ? [ix, iy] : this.snapToEdge(ix, iy);
+
+    if (!this.pendingPoint) {
+      this.pendingPoint = pt;
+      if (this.onStatusMessage) this.onStatusMessage('두 번째 점을 클릭하세요. (Alt 누르면 스냅 해제)');
+      return;
+    }
+
+    const p1 = this.pendingPoint;
+    let p2 = pt;
+    this.pendingPoint = null;
+
+    if (this.mode === 'scale') {
+      this.scaleLine = { p1, p2 };
+      if (this.onScaleLineReady) this.onScaleLineReady(p1, p2);
+    } else if (this.mode === 'measure') {
+      if (!e.shiftKey) {
+        if (this.measureAxis === 'x') p2 = [p2[0], p1[1]];
+        else p2 = [p1[0], p2[1]];
+      }
+      this.measureLine = { p1, p2 };
+      if (this.onMeasureLineReady) this.onMeasureLineReady(p1, p2);
+    }
+    this.setMode('idle');
+    this.render();
+  }
+
+  _onMouseMove(e) {
+    const rect = this.canvas.getBoundingClientRect();
+    const sx = e.clientX - rect.left;
+    const sy = e.clientY - rect.top;
+
+    // Dimension drag
+    if (this._dimDrag) {
+      const dsxPx = sx - this._dimDrag.lastSx;
+      const dsyPx = sy - this._dimDrag.lastSy;
+      this._dimDrag.lastSx = sx;
+      this._dimDrag.lastSy = sy;
+      const delta = this.currentOrientation === 'vertical'
+        ? dsxPx / this.zoom : dsyPx / this.zoom;
+      if (!this.arrowOffsets[this._dimDrag.idx])
+        this.arrowOffsets[this._dimDrag.idx] = 0;
+      this.arrowOffsets[this._dimDrag.idx] += delta;
+      this.render();
+      return;
+    }
+
+    // Panning
+    if (this.isPanning) {
+      this.offsetX += e.clientX - this.lastPanX;
+      this.offsetY += e.clientY - this.lastPanY;
+      this.lastPanX = e.clientX;
+      this.lastPanY = e.clientY;
+      this.render();
+      return;
+    }
+
+    // Hover detection
+    if (this.mode === 'idle' && this.layers.length > 0) {
+      const idx = this._getLayerAtScreen(sx, sy);
+      if (idx !== this.hoveredLayerIdx) {
+        this.hoveredLayerIdx = idx;
+        this.render();
+      }
+      // Cursor for dim handle
+      const dimIdx = this._getDimHandleAt(sx, sy);
+      if (dimIdx >= 0) {
+        this.canvas.style.cursor = this.currentOrientation === 'vertical'
+          ? 'ew-resize' : 'ns-resize';
+      } else if (idx >= 0) {
+        this.canvas.style.cursor = 'pointer';
+      } else {
+        this.canvas.style.cursor = this.mode === 'idle' ? 'grab' : 'crosshair';
+      }
+    }
+  }
+
+  _onMouseUp(e) {
+    if (this._dimDrag) {
+      this._dimDrag = null;
+      return;
+    }
+    if (this.isPanning) {
+      this.isPanning = false;
+      this.container.classList.remove('panning');
+    }
+  }
+
+  _onWheel(e) {
+    if (!this.image) return;
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault();
+      const rect = this.canvas.getBoundingClientRect();
+      const cx = e.clientX - rect.left;
+      const cy = e.clientY - rect.top;
+      this._applyZoom(e.deltaY < 0 ? 1.15 : 0.87, cx, cy);
+    }
+  }
+
+  /* -- Rendering -- */
+  render() {
+    const ctx = this.ctx;
+    const cw = this.canvas.width, ch = this.canvas.height;
+    ctx.clearRect(0, 0, cw, ch);
+
+    // Background
+    ctx.fillStyle = '#141620';
+    ctx.fillRect(0, 0, cw, ch);
+
+    if (!this.image) return;
+
+    // Draw image
+    ctx.save();
+    ctx.translate(this.offsetX, this.offsetY);
+    ctx.scale(this.zoom, this.zoom);
+    ctx.imageSmoothingEnabled = this.zoom < 2;
+    ctx.drawImage(this.image, 0, 0);
+
+    // Draw overlays in image coordinates
+    this._drawOverlays(ctx);
+    ctx.restore();
+  }
+
+  _drawOverlays(ctx) {
+    const invZoom = 1 / this.zoom;
+
+    // Scale line
+    if (this.scaleLine) {
+      const { p1, p2 } = this.scaleLine;
+      ctx.strokeStyle = '#50a0ff';
+      ctx.lineWidth = 2 * invZoom;
+      ctx.beginPath();
+      ctx.moveTo(p1[0], p1[1]);
+      ctx.lineTo(p2[0], p2[1]);
+      ctx.stroke();
+      // Endpoints
+      const r = 4 * invZoom;
+      for (const pt of [p1, p2]) {
+        ctx.beginPath();
+        ctx.arc(pt[0], pt[1], r, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
+
+    // Measure line
+    if (this.measureLine) {
+      const { p1, p2 } = this.measureLine;
+      ctx.strokeStyle = '#50dc78';
+      ctx.lineWidth = 2 * invZoom;
+      ctx.beginPath();
+      ctx.moveTo(p1[0], p1[1]);
+      ctx.lineTo(p2[0], p2[1]);
+      ctx.stroke();
+    }
+
+    // Layer overlays
+    this._drawLayerOverlays(ctx, invZoom);
+  }
+
+  _drawLayerOverlays(ctx, invZoom) {
+    if (this.layers.length === 0) return;
+    const tickHalf = 20;
+    const arrowSize = 4 * invZoom;
+    const dimBaseOffset = 16;
+
+    for (let idx = 0; idx < this.layers.length; idx++) {
+      const layer = this.layers[idx];
+      const isSel = idx === this.selectedLayerIdx;
+      const isHov = idx === this.hoveredLayerIdx;
+      const off = this.arrowOffsets[idx] || 0;
+
+      let color, fillAlpha, lw;
+      if (isSel) {
+        color = '#3cb4ff'; fillAlpha = 0.15; lw = 3 * invZoom;
+      } else if (isHov) {
+        color = '#ffdc3c'; fillAlpha = 0.12; lw = 3 * invZoom;
+      } else {
+        color = this.lineColor; fillAlpha = 0; lw = 2 * invZoom;
+      }
+
+      ctx.strokeStyle = color;
+      ctx.fillStyle = color;
+      ctx.lineWidth = lw;
+
+      if (this.currentOrientation === 'vertical') {
+        const cx = (layer.xTopPx + layer.xBottomPx) / 2;
+        const yt = layer.yTopPx, yb = layer.yBottomPx;
+
+        // Fill
+        if (fillAlpha > 0) {
+          ctx.save();
+          ctx.globalAlpha = fillAlpha;
+          ctx.fillRect(cx - tickHalf, yt, tickHalf * 2, yb - yt);
+          ctx.restore();
+        }
+
+        // Ticks
+        ctx.beginPath();
+        ctx.moveTo(cx - tickHalf, yt); ctx.lineTo(cx + tickHalf, yt);
+        ctx.moveTo(cx - tickHalf, yb); ctx.lineTo(cx + tickHalf, yb);
+        ctx.stroke();
+
+        // Dimension arrow
+        const ax = cx + tickHalf + dimBaseOffset + off;
+        ctx.beginPath();
+        ctx.moveTo(ax, yt); ctx.lineTo(ax, yb);
+        ctx.stroke();
+        this._drawArrowHead(ctx, ax, yt, 'up', arrowSize, color);
+        this._drawArrowHead(ctx, ax, yb, 'down', arrowSize, color);
+
+        // Label
+        const labelColor = (isSel || isHov) ? '#ffffff' : this.textColor;
+        ctx.fillStyle = labelColor;
+        const fontSize = Math.max(9, 10 * invZoom);
+        ctx.font = `${fontSize}px Inter, sans-serif`;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(layer.name, ax + 12 * invZoom, (yt + yb) / 2);
+
+        // Dim text
+        const dimText = layer.thicknessMm
+          ? layer.thicknessMm.toFixed(4)
+          : `${layer.thicknessPx.toFixed(1)}px`;
+        ctx.textAlign = 'right';
+        ctx.fillText(dimText, ax - 6 * invZoom, (yt + yb) / 2);
+      } else {
+        const cy = (layer.yTopPx + layer.yBottomPx) / 2;
+        let xl = layer.xTopPx, xr = layer.xBottomPx;
+        if (xl > xr) [xl, xr] = [xr, xl];
+
+        if (fillAlpha > 0) {
+          ctx.save();
+          ctx.globalAlpha = fillAlpha;
+          ctx.fillRect(xl, cy - tickHalf, xr - xl, tickHalf * 2);
+          ctx.restore();
+        }
+
+        ctx.beginPath();
+        ctx.moveTo(xl, cy - tickHalf); ctx.lineTo(xl, cy + tickHalf);
+        ctx.moveTo(xr, cy - tickHalf); ctx.lineTo(xr, cy + tickHalf);
+        ctx.stroke();
+
+        const ay = cy + tickHalf + dimBaseOffset + off;
+        ctx.beginPath();
+        ctx.moveTo(xl, ay); ctx.lineTo(xr, ay);
+        ctx.stroke();
+        this._drawArrowHead(ctx, xl, ay, 'left', arrowSize, color);
+        this._drawArrowHead(ctx, xr, ay, 'right', arrowSize, color);
+
+        const labelColor = (isSel || isHov) ? '#ffffff' : this.textColor;
+        ctx.fillStyle = labelColor;
+        const fontSize = Math.max(9, 10 * invZoom);
+        ctx.font = `${fontSize}px Inter, sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        ctx.fillText(layer.name, (xl + xr) / 2, ay + 8 * invZoom);
+
+        const dimText = layer.thicknessMm
+          ? layer.thicknessMm.toFixed(4)
+          : `${layer.thicknessPx.toFixed(1)}px`;
+        ctx.textBaseline = 'bottom';
+        ctx.fillText(dimText, (xl + xr) / 2, ay - 6 * invZoom);
+      }
+    }
+  }
+
+  _drawArrowHead(ctx, x, y, dir, size, color) {
+    ctx.save();
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    const s = size;
+    if (dir === 'up') {
+      ctx.moveTo(x, y);
+      ctx.lineTo(x - s, y + 2 * s);
+      ctx.lineTo(x + s, y + 2 * s);
+    } else if (dir === 'down') {
+      ctx.moveTo(x, y);
+      ctx.lineTo(x - s, y - 2 * s);
+      ctx.lineTo(x + s, y - 2 * s);
+    } else if (dir === 'left') {
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + 2 * s, y - s);
+      ctx.lineTo(x + 2 * s, y + s);
+    } else {
+      ctx.moveTo(x, y);
+      ctx.lineTo(x - 2 * s, y - s);
+      ctx.lineTo(x - 2 * s, y + s);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
+  selectLayer(idx) {
+    this.selectedLayerIdx = idx;
+    this.render();
+  }
+
+  deselectLayer() {
+    this.selectedLayerIdx = -1;
+    this.render();
+  }
+
+  setOverlayColors(lineColor, textColor) {
+    this.lineColor = lineColor;
+    this.textColor = textColor;
+    this.render();
+  }
+
+  drawLayerOverlaysData(layers, orientation) {
+    this.layers = layers;
+    this.currentOrientation = orientation;
+    if (this.arrowOffsets.length !== layers.length) {
+      this.arrowOffsets = new Array(layers.length).fill(0);
+    }
+    this.selectedLayerIdx = -1;
+    this.hoveredLayerIdx = -1;
+    this.render();
+  }
+
+  fullReset() {
+    if (this.imageMat) { this.imageMat.delete(); this.imageMat = null; }
+    if (this.edgeMap) { this.edgeMap.delete(); this.edgeMap = null; }
+    this.image = null;
+    this.clearOverlays();
+    this.render();
+  }
+}
+
+/* ================================================================
+   Measurement Table (DOM)
+   ================================================================ */
+class MeasurementTableUI {
+  constructor(tbody) {
+    this.tbody = tbody;
+    this.layers = [];
+    this.selectedRows = new Set();
+    this.onLayerRenamed = null;
+    this.onSelectionChanged = null;
+    this.onRowMoved = null;
+
+    this._dragSrcRow = -1;
+  }
+
+  setLayers(layers) {
+    this.layers = layers;
+    this.selectedRows.clear();
+    this._rebuild();
+  }
+
+  clearLayers() {
+    this.layers = [];
+    this.selectedRows.clear();
+    this.tbody.innerHTML = '';
+  }
+
+  _rebuild() {
+    this.tbody.innerHTML = '';
+    for (let i = 0; i < this.layers.length; i++) {
+      this._addRow(i, this.layers[i]);
+    }
+    if (this.layers.length > 0) {
+      this._addSummaryRow();
+    }
+  }
+
+  _addRow(idx, layer) {
+    const tr = document.createElement('tr');
+    tr.dataset.idx = idx;
+    tr.draggable = true;
+
+    // Name cell (editable)
+    const tdName = document.createElement('td');
+    const inp = document.createElement('input');
+    inp.type = 'text';
+    inp.className = 'layer-name-input';
+    inp.value = layer.name;
+    inp.addEventListener('change', () => {
+      if (this.onLayerRenamed) this.onLayerRenamed(idx, inp.value);
+    });
+    inp.addEventListener('click', (e) => e.stopPropagation());
+    tdName.appendChild(inp);
+    tr.appendChild(tdName);
+
+    // Data cells
+    const vals = [
+      layer.yTopPx.toFixed(2),
+      layer.yBottomPx.toFixed(2),
+      layer.thicknessPx.toFixed(2),
+      layer.thicknessMm.toFixed(4),
+    ];
+    for (const v of vals) {
+      const td = document.createElement('td');
+      td.textContent = v;
+      tr.appendChild(td);
+    }
+
+    // Selection
+    tr.addEventListener('click', (e) => {
+      if (e.target.tagName === 'INPUT') return;
+      if (e.ctrlKey || e.metaKey) {
+        if (this.selectedRows.has(idx)) this.selectedRows.delete(idx);
+        else this.selectedRows.add(idx);
+      } else if (e.shiftKey && this.selectedRows.size > 0) {
+        const min = Math.min(...this.selectedRows);
+        const max = Math.max(...this.selectedRows, idx);
+        for (let r = min; r <= max; r++) this.selectedRows.add(r);
+      } else {
+        this.selectedRows.clear();
+        this.selectedRows.add(idx);
+      }
+      this._updateSelectionStyles();
+      if (this.onSelectionChanged) this.onSelectionChanged([...this.selectedRows].sort((a, b) => a - b));
+    });
+
+    // Drag reorder
+    tr.addEventListener('dragstart', (e) => {
+      this._dragSrcRow = idx;
+      e.dataTransfer.effectAllowed = 'move';
+      tr.style.opacity = '0.5';
+    });
+    tr.addEventListener('dragend', () => {
+      tr.style.opacity = '1';
+      this._dragSrcRow = -1;
+    });
+    tr.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      tr.style.borderTop = '2px solid var(--accent-blue)';
+    });
+    tr.addEventListener('dragleave', () => {
+      tr.style.borderTop = '';
+    });
+    tr.addEventListener('drop', (e) => {
+      e.preventDefault();
+      tr.style.borderTop = '';
+      const dst = parseInt(tr.dataset.idx);
+      if (this._dragSrcRow >= 0 && this._dragSrcRow !== dst) {
+        if (this.onRowMoved) this.onRowMoved(this._dragSrcRow, dst);
+      }
+    });
+
+    this.tbody.appendChild(tr);
+  }
+
+  _addSummaryRow() {
+    const tr = document.createElement('tr');
+    tr.className = 'summary-row';
+    const tdLabel = document.createElement('td');
+    tdLabel.textContent = '합계';
+    tr.appendChild(tdLabel);
+    for (let i = 0; i < 2; i++) {
+      tr.appendChild(document.createElement('td'));
+    }
+    const totalPx = this.layers.reduce((s, l) => s + l.thicknessPx, 0);
+    const totalMm = this.layers.reduce((s, l) => s + l.thicknessMm, 0);
+    const tdPx = document.createElement('td');
+    tdPx.textContent = totalPx.toFixed(2);
+    tr.appendChild(tdPx);
+    const tdMm = document.createElement('td');
+    tdMm.textContent = totalMm.toFixed(4);
+    tr.appendChild(tdMm);
+    this.tbody.appendChild(tr);
+  }
+
+  _updateSelectionStyles() {
+    const rows = this.tbody.querySelectorAll('tr:not(.summary-row)');
+    rows.forEach((tr) => {
+      const idx = parseInt(tr.dataset.idx);
+      tr.classList.toggle('selected', this.selectedRows.has(idx));
+    });
+  }
+
+  selectRow(idx) {
+    this.selectedRows.clear();
+    this.selectedRows.add(idx);
+    this._updateSelectionStyles();
+    // Scroll into view
+    const row = this.tbody.querySelector(`tr[data-idx="${idx}"]`);
+    if (row) row.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+}
+
+/* ================================================================
+   Excel Exporter (SheetJS)
+   ================================================================ */
+class ExcelExporter {
+  static export(measurement, imagePath) {
+    const wb = XLSX.utils.book_new();
+    const sheetName = (imagePath || 'Measurement').replace(/\.[^.]+$/, '').substring(0, 31);
+
+    // Build data
+    const header = ['Layer', 'Top (px)', 'Bottom (px)', 'Thickness (px)', 'Thickness (mm)'];
+    const data = [
+      ['Image', imagePath || ''],
+      ['mm per pixel', measurement.mmPerPixel != null ? measurement.mmPerPixel : 'n/a'],
+      [],
+      header,
+    ];
+    for (const layer of measurement.layers) {
+      data.push([
+        layer.name,
+        Math.round(layer.yTopPx * 100) / 100,
+        Math.round(layer.yBottomPx * 100) / 100,
+        Math.round(layer.thicknessPx * 100) / 100,
+        Math.round(layer.thicknessMm * 10000) / 10000,
+      ]);
+    }
+
+    const ws = XLSX.utils.aoa_to_sheet(data);
+    // Bold style for headers
+    ws['A1'] && (ws['A1'].s = { font: { bold: true } });
+    ws['A2'] && (ws['A2'].s = { font: { bold: true } });
+    // Column widths
+    ws['!cols'] = [
+      { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 14 }, { wch: 14 },
+    ];
+
+    XLSX.utils.book_append_sheet(wb, ws, sheetName);
+    XLSX.writeFile(wb, `${sheetName}_measurements.xlsx`);
+  }
+}
+
+/* ================================================================
+   Main App Controller
+   ================================================================ */
+class App {
+  constructor() {
+    this.calibrator = new ScaleCalibrator();
+    this.measurement = new Measurement();
+    this.undoStack = [];
+    this.selectedRows = [];
+    this.selectedLayerIdx = -1;
+    this.imageName = null;
+
+    // Canvas
+    const canvasEl = document.getElementById('main-canvas');
+    const containerEl = document.getElementById('canvas-area');
+    this.canvas = new ImageCanvas(canvasEl, containerEl);
+
+    // Table
+    const tbody = document.getElementById('table-body');
+    this.table = new MeasurementTableUI(tbody);
+
+    this._bindEvents();
+    this._updateStatusLabels();
+  }
+
+  _bindEvents() {
+    // Canvas callbacks
+    this.canvas.onImageLoaded = (name) => this._onImageLoaded(name);
+    this.canvas.onScaleLineReady = (p1, p2) => this._onScaleLineReady(p1, p2);
+    this.canvas.onMeasureLineReady = (p1, p2) => this._onMeasureLineReady(p1, p2);
+    this.canvas.onZoomChanged = (pct) => {
+      document.getElementById('zoom-label').textContent = `${pct}%`;
+    };
+    this.canvas.onLayerClicked = (idx) => this._onLayerSelected(idx);
+    this.canvas.onStatusMessage = (msg) => {
+      document.getElementById('status-message').textContent = msg;
+      document.getElementById('mode-label').textContent = msg;
+      const indicator = document.getElementById('mode-indicator');
+      if (msg.includes('탐색')) {
+        indicator.textContent = '탐색';
+        indicator.classList.remove('active');
+      } else {
+        indicator.textContent = msg.replace('모드: ', '');
+        indicator.classList.add('active');
+      }
+    };
+
+    // Table callbacks
+    this.table.onLayerRenamed = (idx, name) => {
+      if (idx >= 0 && idx < this.measurement.layers.length)
+        this.measurement.layers[idx].name = name;
+    };
+    this.table.onSelectionChanged = (rows) => this._onTableSelectionChanged(rows);
+    this.table.onRowMoved = (src, dst) => this._onRowMoved(src, dst);
+
+    // Buttons
+    document.getElementById('btn-open-image').addEventListener('click', () => {
+      document.getElementById('file-input').click();
+    });
+    document.getElementById('file-input').addEventListener('change', (e) => {
+      if (e.target.files.length > 0) {
+        this.canvas.loadImageFile(e.target.files[0]);
+        e.target.value = ''; // reset so same file can be re-loaded
+      }
+    });
+
+    document.getElementById('btn-set-scale').addEventListener('click', () => {
+      if (!this.canvas.image) {
+        this._alert('안내', '먼저 이미지를 불러오세요.');
+        return;
+      }
+      this.canvas.setMode('scale');
+    });
+
+    document.getElementById('btn-add-dim').addEventListener('click', () => {
+      this._startMeasureMode();
+    });
+
+    document.getElementById('btn-add-sum-dim').addEventListener('click', () => {
+      this._addSumDimension();
+    });
+
+    document.getElementById('btn-delete-row').addEventListener('click', () => {
+      this._deleteSelectedRows();
+    });
+
+    document.getElementById('btn-undo').addEventListener('click', () => {
+      this._undoDelete();
+    });
+
+    document.getElementById('btn-export').addEventListener('click', () => {
+      this._exportExcel();
+    });
+
+    document.getElementById('btn-reset').addEventListener('click', () => {
+      this._fullReset();
+    });
+
+    document.getElementById('btn-delete-layer-float').addEventListener('click', () => {
+      this._deleteSelectedLayer();
+    });
+
+    document.getElementById('btn-color-settings').addEventListener('click', () => {
+      this._openColorSettings();
+    });
+
+    // Zoom buttons
+    document.getElementById('btn-zoom-in').addEventListener('click', () => this.canvas.zoomIn());
+    document.getElementById('btn-zoom-out').addEventListener('click', () => this.canvas.zoomOut());
+    document.getElementById('btn-zoom-fit').addEventListener('click', () => this.canvas.zoomFit());
+
+    // Scale dialog
+    document.getElementById('scale-dialog-ok').addEventListener('click', () => {
+      this._scaleDialogAccept();
+    });
+    document.getElementById('scale-dialog-cancel').addEventListener('click', () => {
+      document.getElementById('scale-dialog-overlay').classList.remove('active');
+    });
+
+    // Color dialog
+    document.getElementById('color-dialog-ok').addEventListener('click', () => {
+      this._colorDialogAccept();
+    });
+    document.getElementById('color-dialog-cancel').addEventListener('click', () => {
+      document.getElementById('color-dialog-overlay').classList.remove('active');
+    });
+
+    // Alert dialog
+    document.getElementById('alert-dialog-ok').addEventListener('click', () => {
+      const overlay = document.getElementById('alert-dialog-overlay');
+      overlay.classList.remove('active');
+      if (this._alertResolve) { this._alertResolve(true); this._alertResolve = null; }
+    });
+    document.getElementById('alert-dialog-cancel').addEventListener('click', () => {
+      const overlay = document.getElementById('alert-dialog-overlay');
+      overlay.classList.remove('active');
+      if (this._alertResolve) { this._alertResolve(false); this._alertResolve = null; }
+    });
+
+    // Panel resizer
+    this._setupPanelResizer();
+
+    // Keyboard shortcuts
+    document.addEventListener('keydown', (e) => {
+      if (e.ctrlKey && e.key === 'o') {
+        e.preventDefault();
+        document.getElementById('file-input').click();
+      }
+      if (e.ctrlKey && e.key === 's') {
+        e.preventDefault();
+        this._exportExcel();
+      }
+      if (e.ctrlKey && e.key === 'z') {
+        e.preventDefault();
+        this._undoDelete();
+      }
+      if (e.key === 'Escape') {
+        this.canvas.setMode('idle');
+      }
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (document.activeElement?.tagName !== 'INPUT') {
+          this._deleteSelectedRows();
+        }
+      }
+    });
+  }
+
+  _setupPanelResizer() {
+    const resizer = document.getElementById('panel-resizer');
+    const panel = document.getElementById('right-panel');
+    let startX, startWidth;
+    resizer.addEventListener('mousedown', (e) => {
+      startX = e.clientX;
+      startWidth = panel.offsetWidth;
+      const onMove = (ev) => {
+        const dx = startX - ev.clientX;
+        const newW = Math.max(260, Math.min(600, startWidth + dx));
+        panel.style.width = newW + 'px';
+        this.canvas._resize();
+      };
+      const onUp = () => {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+      };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+  }
+
+  /* -- Dialogs -- */
+  _alert(title, message) {
+    document.getElementById('alert-dialog-title').textContent = title;
+    document.getElementById('alert-dialog-message').textContent = message;
+    document.getElementById('alert-dialog-cancel').classList.add('hidden');
+    document.getElementById('alert-dialog-overlay').classList.add('active');
+    return new Promise(resolve => { this._alertResolve = resolve; });
+  }
+
+  _confirm(title, message) {
+    document.getElementById('alert-dialog-title').textContent = title;
+    document.getElementById('alert-dialog-message').textContent = message;
+    document.getElementById('alert-dialog-cancel').classList.remove('hidden');
+    document.getElementById('alert-dialog-overlay').classList.add('active');
+    return new Promise(resolve => { this._alertResolve = resolve; });
+  }
+
+  /* -- Event handlers -- */
+  _onImageLoaded(name) {
+    this.imageName = name;
+    this.measurement = new Measurement();
+    this.measurement.imagePath = name;
+    this.measurement.mmPerPixel = this.calibrator.mmPerPixel;
+    this.table.clearLayers();
+    this.selectedLayerIdx = -1;
+    document.getElementById('btn-delete-layer-float').style.display = 'none';
+    document.getElementById('selection-sum-label').classList.remove('visible');
+    document.getElementById('canvas-placeholder').style.display = 'none';
+    this._updateStatusLabels();
+  }
+
+  _onScaleLineReady(p1, p2) {
+    const dx = p2[0] - p1[0];
+    const dy = p2[1] - p1[1];
+    const diagDist = Math.hypot(dx, dy);
+    if (diagDist <= 0) {
+      this._alert('오류', '두 점의 거리가 0입니다.');
+      return;
+    }
+
+    // Store temp data for dialog
+    this._scaleTempP1 = p1;
+    this._scaleTempP2 = p2;
+    this._scaleTempDist = diagDist;
+
+    const defaultAxis = Math.abs(dx) >= Math.abs(dy) ? 'x' : 'y';
+    document.getElementById('scale-dialog-info').innerHTML =
+      `클릭한 두 점의 픽셀 거리: <strong>${diagDist.toFixed(2)} px</strong><br>` +
+      `이 기준선의 축 방향을 선택하고, 실제 길이(mm)를 입력하세요.<br>` +
+      `선택한 축으로 선이 자동 정렬됩니다.`;
+
+    if (defaultAxis === 'x') {
+      document.getElementById('axis-x').checked = true;
+    } else {
+      document.getElementById('axis-y').checked = true;
+    }
+    document.getElementById('scale-dialog-overlay').classList.add('active');
+  }
+
+  _scaleDialogAccept() {
+    document.getElementById('scale-dialog-overlay').classList.remove('active');
+
+    const axis = document.getElementById('axis-x').checked ? 'x' : 'y';
+    const realMm = parseFloat(document.getElementById('scale-real-mm').value);
+    if (!realMm || realMm <= 0) {
+      this._alert('오류', '유효한 길이를 입력하세요.');
+      return;
+    }
+
+    let p1 = this._scaleTempP1;
+    let p2 = this._scaleTempP2;
+    const dx = p2[0] - p1[0];
+    const dy = p2[1] - p1[1];
+
+    // Project to axis
+    let p2Proj, pixelDist;
+    if (axis === 'x') {
+      p2Proj = [p2[0], p1[1]];
+      pixelDist = Math.abs(dx);
+    } else {
+      p2Proj = [p1[0], p2[1]];
+      pixelDist = Math.abs(dy);
+    }
+    if (pixelDist <= 0) {
+      this._alert('오류', '선택한 축 방향으로의 거리가 0입니다.');
+      return;
+    }
+
+    this.canvas.scaleLine = { p1, p2: p2Proj };
+
+    try {
+      this.calibrator.setReference(p1, p2Proj, realMm);
+    } catch (err) {
+      this._alert('오류', err.message);
+      return;
+    }
+    this.calibrator.axis = axis;
+    this.canvas.measureAxis = axis;
+    this.measurement.mmPerPixel = this.calibrator.mmPerPixel;
+    this.measurement.recomputeAll();
+    this.table.setLayers(this.measurement.layers);
+    this._updateStatusLabels();
+
+    // Auto-detect along axis
+    this._autoDetectAlongAxis(p1, p2Proj, axis);
+    this.canvas.render();
+  }
+
+  _autoDetectAlongAxis(p1, p2, axis) {
+    if (!this.canvas.imageMat) return;
+    const h = this.canvas.imageHeight;
+    const w = this.canvas.imageWidth;
+    let mp1, mp2;
+    if (axis === 'y') {
+      const xMid = (p1[0] + p2[0]) / 2;
+      mp1 = [xMid, 0]; mp2 = [xMid, h - 1];
+    } else {
+      const yMid = (p1[1] + p2[1]) / 2;
+      mp1 = [0, yMid]; mp2 = [w - 1, yMid];
+    }
+    this.canvas.measureLine = { p1: mp1, p2: mp2 };
+    this._onAutoDetectReady(mp1, mp2);
+  }
+
+  _onAutoDetectReady(p1, p2) {
+    if (!this.canvas.imageMat) return;
+    const minThick = parseFloat(document.getElementById('spin-min-thickness').value) || 5;
+    const lineMerge = parseFloat(document.getElementById('spin-line-merge').value) || 6;
+
+    const newLayers = EdgeDetector.detectLayers(
+      this.canvas.imageMat, p1, p2,
+      { minThicknessPx: minThick, lineMergePx: lineMerge }
+    );
+    if (newLayers.length === 0) return;
+
+    const start = this.measurement.layers.length;
+    for (let i = 0; i < newLayers.length; i++) {
+      newLayers[i].name = `Layer ${start + i + 1}`;
+      newLayers[i].recompute(this.measurement.mmPerPixel);
+    }
+    this._saveUndoSnapshot();
+    this.measurement.layers.push(...newLayers);
+    this.table.setLayers(this.measurement.layers);
+    this._refreshOverlays();
+    this._updateStatusLabels();
+  }
+
+  _onMeasureLineReady(p1, p2) {
+    const thicknessPx = Math.hypot(p2[0] - p1[0], p2[1] - p1[1]);
+    if (thicknessPx <= 0) return;
+    const start = this.measurement.layers.length;
+    const layer = new Layer(
+      `Layer ${start + 1}`, p1[1], p2[1], thicknessPx, 0, p1[0], p2[0]
+    );
+    layer.recompute(this.measurement.mmPerPixel);
+    this._saveUndoSnapshot();
+    this.measurement.layers.push(layer);
+    this.table.setLayers(this.measurement.layers);
+    this._refreshOverlays();
+    this._updateStatusLabels();
+  }
+
+  async _startMeasureMode() {
+    if (!this.canvas.image) {
+      this._alert('안내', '먼저 이미지를 불러오세요.');
+      return;
+    }
+    if (!this.calibrator.isCalibrated) {
+      const ok = await this._confirm(
+        '스케일 미설정',
+        '기준선이 설정되지 않았습니다. 계속하시겠습니까?\n(mm 단위 값이 0으로 표시됩니다)'
+      );
+      if (!ok) return;
+    }
+    this.canvas.setMode('measure');
+  }
+
+  _onLayerSelected(idx) {
+    if (idx < 0 || idx >= this.measurement.layers.length) {
+      document.getElementById('btn-delete-layer-float').style.display = 'none';
+      this.canvas.deselectLayer();
+      return;
+    }
+    this.selectedLayerIdx = idx;
+    const btn = document.getElementById('btn-delete-layer-float');
+    btn.textContent = `🗑️ ${this.measurement.layers[idx].name} 삭제`;
+    btn.style.display = 'block';
+    this.canvas.selectLayer(idx);
+    this.table.selectRow(idx);
+  }
+
+  _onTableSelectionChanged(rows) {
+    this.selectedRows = rows;
+    const sumLabel = document.getElementById('selection-sum-label');
+    if (rows.length === 1) {
+      this._onLayerSelected(rows[0]);
+      sumLabel.classList.remove('visible');
+    } else if (rows.length >= 2) {
+      document.getElementById('btn-delete-layer-float').style.display = 'none';
+      this.canvas.deselectLayer();
+      this._updateSelectionSum(rows);
+    } else {
+      document.getElementById('btn-delete-layer-float').style.display = 'none';
+      this.canvas.deselectLayer();
+      sumLabel.classList.remove('visible');
+    }
+  }
+
+  _updateSelectionSum(rows) {
+    const layers = this.measurement.layers;
+    const sumPx = rows.reduce((s, r) => s + layers[r].thicknessPx, 0);
+    const sumMm = rows.reduce((s, r) => s + layers[r].thicknessMm, 0);
+    const label = document.getElementById('selection-sum-label');
+    label.textContent = `선택 합계 (${rows.length}개): ${sumPx.toFixed(2)} px / ${sumMm.toFixed(4)} mm`;
+    label.classList.add('visible');
+  }
+
+  _saveUndoSnapshot() {
+    this.undoStack.push(this.measurement.layers.map(l => l.clone()));
+    document.getElementById('btn-undo').classList.remove('hidden');
+  }
+
+  _deleteSelectedLayer() {
+    const idx = this.selectedLayerIdx;
+    if (idx < 0 || idx >= this.measurement.layers.length) {
+      document.getElementById('btn-delete-layer-float').style.display = 'none';
+      return;
+    }
+    this._saveUndoSnapshot();
+    this.measurement.layers.splice(idx, 1);
+    for (let i = 0; i < this.measurement.layers.length; i++) {
+      this.measurement.layers[i].name = `Layer ${i + 1}`;
+    }
+    this.table.setLayers(this.measurement.layers);
+    document.getElementById('btn-delete-layer-float').style.display = 'none';
+    this.selectedLayerIdx = -1;
+    this.canvas.deselectLayer();
+    this._refreshOverlays();
+  }
+
+  _deleteSelectedRows() {
+    const rows = [...this.selectedRows].sort((a, b) => b - a);
+    if (rows.length === 0) return;
+    this._saveUndoSnapshot();
+    for (const row of rows) {
+      if (row >= 0 && row < this.measurement.layers.length) {
+        this.measurement.layers.splice(row, 1);
+      }
+    }
+    for (let i = 0; i < this.measurement.layers.length; i++) {
+      this.measurement.layers[i].name = `Layer ${i + 1}`;
+    }
+    this.table.setLayers(this.measurement.layers);
+    this._refreshOverlays();
+  }
+
+  _undoDelete() {
+    if (this.undoStack.length === 0) return;
+    this.measurement.layers = this.undoStack.pop();
+    this.measurement.recomputeAll();
+    this.table.setLayers(this.measurement.layers);
+    this._refreshOverlays();
+    document.getElementById('btn-delete-layer-float').style.display = 'none';
+    this.selectedLayerIdx = -1;
+    this.canvas.deselectLayer();
+    if (this.undoStack.length === 0) {
+      document.getElementById('btn-undo').classList.add('hidden');
+    }
+    this._setStatus('삭제가 되돌려졌습니다.');
+  }
+
+  _onRowMoved(src, dst) {
+    const layers = this.measurement.layers;
+    if (src < 0 || src >= layers.length || dst < 0 || dst >= layers.length) return;
+    const layer = layers.splice(src, 1)[0];
+    layers.splice(dst, 0, layer);
+    this.table.setLayers(layers);
+    this._refreshOverlays();
+  }
+
+  _addSumDimension() {
+    const rows = this.selectedRows;
+    if (rows.length < 2) {
+      this._alert('안내', '합계 치수를 추가하려면 테이블에서 2개 이상의 레이어를 선택하세요.');
+      return;
+    }
+    const selected = rows.map(r => this.measurement.layers[r]);
+    const sumPx = selected.reduce((s, l) => s + l.thicknessPx, 0);
+    const sumMm = selected.reduce((s, l) => s + l.thicknessMm, 0);
+    const names = selected.map(l => l.name);
+    const sumName = `합계 (${names.join(' + ')})`;
+
+    const yTop = Math.min(...selected.map(l => l.yTopPx));
+    const yBottom = Math.max(...selected.map(l => l.yBottomPx));
+    const xTop = selected[0].xTopPx;
+    const xBottom = selected[0].xBottomPx;
+
+    const sumLayer = new Layer(sumName, yTop, yBottom, sumPx, sumMm, xTop, xBottom);
+    this._saveUndoSnapshot();
+    this.measurement.layers.push(sumLayer);
+    this.table.setLayers(this.measurement.layers);
+    this._refreshOverlays();
+  }
+
+  _refreshOverlays() {
+    const axis = this.calibrator.axis || 'y';
+    const orientation = axis === 'x' ? 'horizontal' : 'vertical';
+    this.canvas.drawLayerOverlaysData(this.measurement.layers, orientation);
+  }
+
+  _openColorSettings() {
+    document.getElementById('color-line').value = this.canvas.lineColor;
+    document.getElementById('color-text').value = this.canvas.textColor;
+    document.getElementById('color-dialog-overlay').classList.add('active');
+  }
+
+  _colorDialogAccept() {
+    document.getElementById('color-dialog-overlay').classList.remove('active');
+    const lineColor = document.getElementById('color-line').value;
+    const textColor = document.getElementById('color-text').value;
+    this.canvas.setOverlayColors(lineColor, textColor);
+    if (this.measurement.layers.length > 0) {
+      this._refreshOverlays();
+    }
+  }
+
+  _exportExcel() {
+    if (this.measurement.layers.length === 0) {
+      this._alert('안내', '내보낼 데이터가 없습니다.');
+      return;
+    }
+    ExcelExporter.export(this.measurement, this.imageName || 'measurements');
+    this._setStatus('Excel 파일이 다운로드되었습니다.');
+  }
+
+  _fullReset() {
+    this.measurement = new Measurement();
+    this.calibrator.reset();
+    this.undoStack = [];
+    this.selectedRows = [];
+    this.selectedLayerIdx = -1;
+    this.imageName = null;
+    this.table.clearLayers();
+    this.canvas.fullReset();
+    document.getElementById('btn-delete-layer-float').style.display = 'none';
+    document.getElementById('btn-undo').classList.add('hidden');
+    document.getElementById('selection-sum-label').classList.remove('visible');
+    document.getElementById('canvas-placeholder').style.display = '';
+    this._updateStatusLabels();
+    this._setStatus('초기화 완료. 이미지를 드래그하거나 파일을 여세요.');
+  }
+
+  _updateStatusLabels() {
+    const label = document.getElementById('scale-label');
+    if (this.calibrator.isCalibrated) {
+      label.textContent = `mm/pixel: ${this.calibrator.mmPerPixel.toFixed(5)}`;
+    } else {
+      label.textContent = 'mm/pixel: n/a (기준선 미설정)';
+    }
+  }
+
+  _setStatus(msg) {
+    document.getElementById('status-message').textContent = msg;
+  }
+
+  onDragLeave(e) {
+    document.getElementById('drop-overlay').classList.remove('visible');
+  }
+}
+
+/* ================================================================
+   Bootstrap
+   ================================================================ */
+let app = null;
+
+function onOpenCvReady() {
+  document.getElementById('opencv-loading').classList.add('hidden');
+  app = new App();
+}
+
+// Load OpenCV.js
+(function loadOpenCV() {
+  const script = document.createElement('script');
+  script.src = 'https://docs.opencv.org/4.9.0/opencv.js';
+  script.async = true;
+  script.onload = () => {
+    // cv.onRuntimeInitialized may be needed
+    if (typeof cv !== 'undefined') {
+      if (cv.onRuntimeInitialized) {
+        // already has a callback mechanism
+      }
+      cv['onRuntimeInitialized'] = onOpenCvReady;
+      // If already initialized
+      if (cv.Mat) onOpenCvReady();
+    }
+  };
+  script.onerror = () => {
+    document.getElementById('opencv-loading').innerHTML =
+      '<p style="color:var(--accent-red);font-size:16px;">OpenCV.js 로드 실패.<br>인터넷 연결을 확인하세요.</p>';
+  };
+  document.head.appendChild(script);
+})();
+</script>
+</body>
+</html>
