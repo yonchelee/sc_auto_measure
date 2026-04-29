@@ -21,6 +21,8 @@ class ScaleDialog(QDialog):
         self._pixel_distance = pixel_distance
 
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(16)
         info = QLabel(
             f"클릭한 두 점의 픽셀 거리: <b>{pixel_distance:.2f} px</b><br>"
             "이 거리가 실제로 몇 mm 인지 입력하세요."
