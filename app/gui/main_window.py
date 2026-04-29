@@ -62,24 +62,36 @@ class MainWindow(QMainWindow):
 
     def _build_ui(self) -> None:
         splitter = QSplitter(Qt.Orientation.Horizontal, self)
+        splitter.setHandleWidth(1)
         splitter.addWidget(self._canvas)
 
         right = QWidget(self)
         right_layout = QVBoxLayout(right)
-        right_layout.setContentsMargins(8, 8, 8, 8)
+        right_layout.setContentsMargins(24, 24, 24, 24)
+        right_layout.setSpacing(16)
 
         title = QLabel("Measurements")
-        title.setStyleSheet("font-weight: bold; font-size: 14px;")
+        title.setProperty("role", "title")
+        title.setStyleSheet(
+            "font-size: 20px; font-weight: 700; padding: 4px 0px;"
+        )
         right_layout.addWidget(title)
 
         right_layout.addWidget(self._table, 1)
 
+        # Status block — small, muted, vertically tight.
+        status_box = QVBoxLayout()
+        status_box.setSpacing(2)
         self._scale_label = QLabel("mm/pixel: n/a")
         self._mode_label = QLabel("모드: 탐색")
-        right_layout.addWidget(self._scale_label)
-        right_layout.addWidget(self._mode_label)
+        for lbl in (self._scale_label, self._mode_label):
+            lbl.setProperty("role", "caption")
+            lbl.setStyleSheet("color: #6E6E73; font-size: 12px;")
+            status_box.addWidget(lbl)
+        right_layout.addLayout(status_box)
 
         button_row1 = QHBoxLayout()
+        button_row1.setSpacing(8)
         self._btn_scale = QPushButton("기준선 설정")
         self._btn_measure = QPushButton("측정선 그리기")
         button_row1.addWidget(self._btn_scale)
@@ -87,17 +99,20 @@ class MainWindow(QMainWindow):
         right_layout.addLayout(button_row1)
 
         button_row2 = QHBoxLayout()
+        button_row2.setSpacing(8)
         self._btn_clear = QPushButton("초기화")
         self._btn_delete_row = QPushButton("선택 행 삭제")
+        self._btn_delete_row.setProperty("role", "danger")
         button_row2.addWidget(self._btn_delete_row)
         button_row2.addWidget(self._btn_clear)
         right_layout.addLayout(button_row2)
 
-        self._btn_export = QPushButton("Excel로 내보내기")
-        right_layout.addWidget(self._btn_export)
-
         self._btn_style = QPushButton("선 스타일 편집…")
         right_layout.addWidget(self._btn_style)
+
+        self._btn_export = QPushButton("Excel로 내보내기")
+        self._btn_export.setProperty("role", "primary")
+        right_layout.addWidget(self._btn_export)
 
         splitter.addWidget(right)
         splitter.setStretchFactor(0, 3)
