@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from enum import Enum, auto
 from pathlib import Path
 from typing import List, Optional, Tuple
@@ -15,12 +16,15 @@ from PyQt6.QtGui import (
     QImage,
     QPen,
     QPixmap,
+    QPolygonF,
 )
 from PyQt6.QtWidgets import (
     QGraphicsPixmapItem,
     QGraphicsScene,
     QGraphicsView,
 )
+
+from ..core.line_style import ArrowShape, CanvasStyle, LineStyle
 
 Point = Tuple[float, float]
 
@@ -63,6 +67,16 @@ class ImageCanvas(QGraphicsView):
         self._measure_line_items: list = []
         self._boundary_items: list = []
 
+        # Remember last drawn endpoints so we can redraw with new styles.
+        self._scale_p1: Optional[QPointF] = None
+        self._scale_p2: Optional[QPointF] = None
+        self._measure_p1: Optional[QPointF] = None
+        self._measure_p2: Optional[QPointF] = None
+        self._boundary_points: List[QPointF] = []
+
+        # Visual style.
+        self._style: CanvasStyle = CanvasStyle()
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
@@ -74,6 +88,24 @@ class ImageCanvas(QGraphicsView):
     @property
     def image_path(self) -> Optional[Path]:
         return self._image_path
+
+    @property
+    def style(self) -> CanvasStyle:
+        return self._style
+
+    @property
+    def measure_endpoints(self) -> Optional[Tuple[QPointF, QPointF]]:
+        if self._measure_p1 is None or self._measure_p2 is None:
+            return None
+        return (QPointF(self._measure_p1), QPointF(self._measure_p2))
+
+    def set_style(self, style: CanvasStyle) -> None:
+        self._style = style
+        self._redraw_all_overlays()
+
+    def set_measure_endpoints(self, p1: QPointF, p2: QPointF) -> None:
+        """Update the measurement line position without re-detecting layers."""
+        self.draw_measure_line(p1, p2)
 
     def set_mode(self, mode: CanvasMode) -> None:
         self._mode = mode
@@ -118,45 +150,175 @@ class ImageCanvas(QGraphicsView):
             for it in items:
                 self._scene.removeItem(it)
             items.clear()
+        self._scale_p1 = self._scale_p2 = None
+        self._measure_p1 = self._measure_p2 = None
+        self._boundary_points = []
 
     def draw_scale_line(self, p1: QPointF, p2: QPointF) -> None:
+        self._scale_p1 = QPointF(p1)
+        self._scale_p2 = QPointF(p2)
+        self._render_scale_line()
+
+    def draw_measure_line(self, p1: QPointF, p2: QPointF) -> None:
+        self._measure_p1 = QPointF(p1)
+        self._measure_p2 = QPointF(p2)
+        self._render_measure_line()
+
+    def draw_boundaries(self, points: List[QPointF], line_width: int = 40) -> None:
+        """Draw short horizontal tick marks at each detected boundary."""
+        self._boundary_points = [QPointF(p) for p in points]
+        self._boundary_tick_width = line_width
+        self._render_boundaries()
+
+    # ------------------------------------------------------------------
+    # Rendering helpers (re-callable so style updates take effect)
+    # ------------------------------------------------------------------
+
+    def _redraw_all_overlays(self) -> None:
+        self._render_scale_line()
+        self._render_measure_line()
+        self._render_boundaries()
+
+    def _make_pen(self, line_style: LineStyle) -> QPen:
+        color = QColor(line_style.color)
+        if not color.isValid():
+            color = QColor(255, 255, 255)
+        pen = QPen(color, max(1, int(line_style.width)))
+        pen.setCosmetic(True)
+        return pen
+
+    def _render_scale_line(self) -> None:
         for it in self._scale_line_items:
             self._scene.removeItem(it)
         self._scale_line_items.clear()
-        pen = QPen(QColor(80, 160, 255), 2)
-        pen.setCosmetic(True)
+        if self._scale_p1 is None or self._scale_p2 is None:
+            return
+        pen = self._make_pen(self._style.scale)
+        p1, p2 = self._scale_p1, self._scale_p2
         line = self._scene.addLine(p1.x(), p1.y(), p2.x(), p2.y(), pen)
         self._scale_line_items.append(line)
         for pt in (p1, p2):
             ell = self._scene.addEllipse(pt.x() - 3, pt.y() - 3, 6, 6, pen)
             self._scale_line_items.append(ell)
+        # End decorations for the scale line if requested.
+        self._draw_endpoint_decorations(
+            self._scale_line_items, p1, p2, self._style.scale
+        )
 
-    def draw_measure_line(self, p1: QPointF, p2: QPointF) -> None:
+    def _render_measure_line(self) -> None:
         for it in self._measure_line_items:
             self._scene.removeItem(it)
         self._measure_line_items.clear()
-        pen = QPen(QColor(80, 220, 120), 2)
-        pen.setCosmetic(True)
+        if self._measure_p1 is None or self._measure_p2 is None:
+            return
+        pen = self._make_pen(self._style.measure)
+        p1, p2 = self._measure_p1, self._measure_p2
         line = self._scene.addLine(p1.x(), p1.y(), p2.x(), p2.y(), pen)
         self._measure_line_items.append(line)
+        self._draw_endpoint_decorations(
+            self._measure_line_items, p1, p2, self._style.measure
+        )
 
-    def draw_boundaries(self, points: List[QPointF], line_width: int = 40) -> None:
-        """Draw short horizontal tick marks at each detected boundary."""
+    def _render_boundaries(self) -> None:
         for it in self._boundary_items:
             self._scene.removeItem(it)
         self._boundary_items.clear()
-        pen = QPen(QColor(255, 80, 80), 2)
-        pen.setCosmetic(True)
-        for idx, pt in enumerate(points):
+        if not self._boundary_points:
+            return
+        pen = self._make_pen(self._style.boundary)
+        color = QColor(self._style.boundary.color)
+        if not color.isValid():
+            color = QColor(255, 80, 80)
+        line_width = getattr(self, "_boundary_tick_width", 40)
+        for idx, pt in enumerate(self._boundary_points):
             x, y = pt.x(), pt.y()
             tick = self._scene.addLine(
                 x - line_width / 2, y, x + line_width / 2, y, pen
             )
             self._boundary_items.append(tick)
             text = self._scene.addSimpleText(f"b{idx}")
-            text.setBrush(QBrush(QColor(255, 80, 80)))
+            text.setBrush(QBrush(color))
             text.setPos(x + line_width / 2 + 4, y - 8)
             self._boundary_items.append(text)
+
+    def _draw_endpoint_decorations(
+        self,
+        bucket: list,
+        p1: QPointF,
+        p2: QPointF,
+        line_style: LineStyle,
+    ) -> None:
+        """Draw shape decorations (arrow/dot/dash) at line endpoints."""
+        shape = line_style.arrow
+        if shape is ArrowShape.NONE:
+            return
+        color = QColor(line_style.color)
+        if not color.isValid():
+            color = QColor(255, 255, 255)
+        pen = QPen(color, max(1, int(line_style.width)))
+        pen.setCosmetic(True)
+        brush = QBrush(color)
+        size = max(6, int(line_style.width) * 4)
+
+        for tip, opp in ((p1, p2), (p2, p1)):
+            self._draw_single_endpoint(
+                bucket, tip, opp, shape, pen, brush, size
+            )
+
+    def _draw_single_endpoint(
+        self,
+        bucket: list,
+        tip: QPointF,
+        opp: QPointF,
+        shape: ArrowShape,
+        pen: QPen,
+        brush: QBrush,
+        size: int,
+    ) -> None:
+        if shape is ArrowShape.DOT:
+            r = size / 2
+            ell = self._scene.addEllipse(
+                tip.x() - r, tip.y() - r, size, size, pen, brush
+            )
+            bucket.append(ell)
+            return
+
+        # Direction from tip back toward the opposite endpoint.
+        dx = opp.x() - tip.x()
+        dy = opp.y() - tip.y()
+        length = math.hypot(dx, dy)
+        if length == 0:
+            return
+        ux, uy = dx / length, dy / length
+
+        if shape is ArrowShape.ARROW:
+            # Triangle pointing away from `opp`.
+            base_x = tip.x() + ux * size
+            base_y = tip.y() + uy * size
+            # Perpendicular vector.
+            px, py = -uy, ux
+            half = size / 2
+            poly = QPolygonF(
+                [
+                    tip,
+                    QPointF(base_x + px * half, base_y + py * half),
+                    QPointF(base_x - px * half, base_y - py * half),
+                ]
+            )
+            item = self._scene.addPolygon(poly, pen, brush)
+            bucket.append(item)
+        elif shape is ArrowShape.DASH:
+            # Short perpendicular dash crossing the tip.
+            px, py = -uy, ux
+            half = size / 2
+            line = self._scene.addLine(
+                tip.x() - px * half,
+                tip.y() - py * half,
+                tip.x() + px * half,
+                tip.y() + py * half,
+                pen,
+            )
+            bucket.append(line)
 
     # ------------------------------------------------------------------
     # Drag & drop
@@ -244,6 +406,9 @@ class ImageCanvas(QGraphicsView):
         self._scale_line_items.clear()
         self._measure_line_items.clear()
         self._boundary_items.clear()
+        self._scale_p1 = self._scale_p2 = None
+        self._measure_p1 = self._measure_p2 = None
+        self._boundary_points = []
         self._pixmap_item = self._scene.addPixmap(pix)
         self._scene.setSceneRect(0, 0, w, h)
         self.resetTransform()

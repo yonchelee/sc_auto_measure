@@ -24,6 +24,55 @@ class Layer:
         else:
             self.thickness_mm = 0.0
 
+    # ------------------------------------------------------------------
+    # Manual editing helpers — keep all four numeric fields consistent
+    # whenever one of them is changed by the user from the table.
+    # ------------------------------------------------------------------
+
+    def set_top_px(self, value: float, mm_per_pixel: Optional[float]) -> None:
+        """Update ``y_top_px`` and refresh thickness fields."""
+        self.y_top_px = float(value)
+        self.recompute(mm_per_pixel)
+
+    def set_bottom_px(self, value: float, mm_per_pixel: Optional[float]) -> None:
+        """Update ``y_bottom_px`` and refresh thickness fields."""
+        self.y_bottom_px = float(value)
+        self.recompute(mm_per_pixel)
+
+    def set_thickness_px(
+        self, value: float, mm_per_pixel: Optional[float]
+    ) -> None:
+        """Set thickness in pixels by moving the bottom edge.
+
+        ``y_top_px`` is left untouched, ``y_bottom_px`` is recomputed so that
+        ``|bottom - top| == value``.  The new bottom keeps the same direction
+        (above/below the top) as before.
+        """
+        value = float(value)
+        if value < 0:
+            raise ValueError("thickness must be >= 0")
+        sign = 1.0 if self.y_bottom_px >= self.y_top_px else -1.0
+        self.y_bottom_px = self.y_top_px + sign * value
+        self.recompute(mm_per_pixel)
+
+    def set_thickness_mm(
+        self, value: float, mm_per_pixel: Optional[float]
+    ) -> None:
+        """Set thickness in millimetres.
+
+        Requires a calibrated ``mm_per_pixel`` so we can back-compute the new
+        pixel thickness; otherwise raises :class:`ValueError`.
+        """
+        value = float(value)
+        if value < 0:
+            raise ValueError("thickness must be >= 0")
+        if mm_per_pixel is None or mm_per_pixel <= 0:
+            raise ValueError(
+                "mm/pixel ratio is not calibrated; cannot edit mm value"
+            )
+        new_thickness_px = value / mm_per_pixel
+        self.set_thickness_px(new_thickness_px, mm_per_pixel)
+
 
 @dataclass
 class Measurement:

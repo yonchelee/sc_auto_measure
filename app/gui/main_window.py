@@ -23,7 +23,14 @@ from ..core import edge_detector, excel_exporter
 from ..core.measurement import Layer, Measurement
 from ..core.scale_calibrator import ScaleCalibrator
 from .image_canvas import CanvasMode, ImageCanvas
-from .measurement_table import MeasurementTable
+from .measurement_table import (
+    COL_BOTTOM,
+    COL_THICK_MM,
+    COL_THICK_PX,
+    COL_TOP,
+    MeasurementTable,
+)
+from .line_style_dialog import LineStyleDialog
 from .scale_dialog import ScaleDialog
 
 
@@ -38,6 +45,11 @@ class MainWindow(QMainWindow):
 
         self._canvas = ImageCanvas(self)
         self._table = MeasurementTable(self)
+
+        # Remember the last measurement line so we can redraw boundary
+        # overlays after the user manually edits a layer value.
+        self._last_measure_p1: QPointF | None = None
+        self._last_measure_p2: QPointF | None = None
 
         self._build_ui()
         self._build_menu()
@@ -84,6 +96,9 @@ class MainWindow(QMainWindow):
         self._btn_export = QPushButton("Excel로 내보내기")
         right_layout.addWidget(self._btn_export)
 
+        self._btn_style = QPushButton("선 스타일 편집…")
+        right_layout.addWidget(self._btn_style)
+
         splitter.addWidget(right)
         splitter.setStretchFactor(0, 3)
         splitter.setStretchFactor(1, 2)
@@ -125,8 +140,11 @@ class MainWindow(QMainWindow):
         self._btn_clear.clicked.connect(self._clear_measurements)
         self._btn_delete_row.clicked.connect(self._delete_selected_row)
         self._btn_export.clicked.connect(self._export_dialog)
+        self._btn_style.clicked.connect(self._open_line_style_dialog)
 
         self._table.layerRenamed.connect(self._on_layer_renamed)
+        self._table.valueEdited.connect(self._on_value_edited)
+        self._table.valueEditFailed.connect(self._on_value_edit_failed)
 
     # ------------------------------------------------------------------
     # Event handlers
@@ -139,6 +157,8 @@ class MainWindow(QMainWindow):
             mm_per_pixel=self._calibrator.mm_per_pixel,
         )
         self._table.clear_layers()
+        self._last_measure_p1 = None
+        self._last_measure_p2 = None
         self._update_status_labels()
 
     def _on_scale_line_ready(self, p1: QPointF, p2: QPointF) -> None:
@@ -183,6 +203,8 @@ class MainWindow(QMainWindow):
         image = self._canvas.image_bgr
         if image is None:
             return
+        self._last_measure_p1 = QPointF(p1)
+        self._last_measure_p2 = QPointF(p2)
         layers: List[Layer] = edge_detector.detect_layers(
             image, (p1.x(), p1.y()), (p2.x(), p2.y())
         )
@@ -211,10 +233,49 @@ class MainWindow(QMainWindow):
         if 0 <= row < len(self._measurement.layers):
             self._measurement.layers[row].name = new_name
 
+    def _on_value_edited(self, row: int, column: int, value: float) -> None:
+        """Apply a manual edit to a numeric column and refresh."""
+        if not (0 <= row < len(self._measurement.layers)):
+            return
+        layer = self._measurement.layers[row]
+        mm_per_pixel = self._measurement.mm_per_pixel
+        try:
+            if column == COL_TOP:
+                layer.set_top_px(value, mm_per_pixel)
+            elif column == COL_BOTTOM:
+                layer.set_bottom_px(value, mm_per_pixel)
+            elif column == COL_THICK_PX:
+                layer.set_thickness_px(value, mm_per_pixel)
+            elif column == COL_THICK_MM:
+                layer.set_thickness_mm(value, mm_per_pixel)
+            else:
+                return
+        except ValueError as err:
+            QMessageBox.warning(self, "입력 오류", str(err))
+            self._table.set_layers(self._measurement.layers)
+            return
+        # Re-render the table so all dependent columns reflect the edit,
+        # and re-draw boundary tick marks on the canvas.
+        self._table.set_layers(self._measurement.layers)
+        if (
+            self._last_measure_p1 is not None
+            and self._last_measure_p2 is not None
+        ):
+            self._draw_boundary_overlays(
+                self._last_measure_p1, self._last_measure_p2
+            )
+
+    def _on_value_edit_failed(self, row: int, column: int) -> None:
+        """Revert a non-numeric edit by re-rendering the table."""
+        self.statusBar().showMessage("숫자만 입력 가능합니다. 값을 되돌립니다.")
+        self._table.set_layers(self._measurement.layers)
+
     def _clear_measurements(self) -> None:
         self._measurement.clear()
         self._table.clear_layers()
         self._canvas.draw_boundaries([])
+        self._last_measure_p1 = None
+        self._last_measure_p2 = None
 
     def _delete_selected_row(self) -> None:
         rows = sorted({idx.row() for idx in self._table.selectedIndexes()}, reverse=True)
@@ -266,6 +327,23 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "저장 실패", str(err))
             return
         self.statusBar().showMessage(f"저장 완료: {out}")
+
+    def _open_line_style_dialog(self) -> None:
+        endpoints = self._canvas.measure_endpoints
+        dialog = LineStyleDialog(self._canvas.style, endpoints, self)
+        if dialog.exec() != dialog.DialogCode.Accepted:
+            return
+        self._canvas.set_style(dialog.result_style())
+        new_endpoints = dialog.result_endpoints()
+        if new_endpoints is not None:
+            p1, p2 = new_endpoints
+            self._canvas.set_measure_endpoints(p1, p2)
+            self._last_measure_p1 = QPointF(p1)
+            self._last_measure_p2 = QPointF(p2)
+            # Redraw boundary ticks at the new measurement-line X.
+            if self._measurement.layers:
+                self._draw_boundary_overlays(p1, p2)
+        self.statusBar().showMessage("선 스타일이 적용되었습니다.")
 
     # ------------------------------------------------------------------
     # Helpers

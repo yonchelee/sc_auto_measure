@@ -137,3 +137,84 @@ def test_excel_export_roundtrip(tmp_path: Path):
     assert names == ["Top", "Mid", "Bot"]
     mm_values = [ws.cell(row=r, column=5).value for r in range(5, 8)]
     assert mm_values == pytest.approx([1.0, 3.0, 2.0])
+
+
+# ----------------------------------------------------------------------
+# Layer manual edit helpers
+# ----------------------------------------------------------------------
+
+
+def test_layer_set_top_px_recomputes_thickness():
+    layer = Layer("a", 10.0, 30.0, 20.0, 0.0)
+    layer.set_top_px(5.0, mm_per_pixel=0.1)
+    assert layer.y_top_px == 5.0
+    assert layer.thickness_px == pytest.approx(25.0)
+    assert layer.thickness_mm == pytest.approx(2.5)
+
+
+def test_layer_set_bottom_px_recomputes_thickness():
+    layer = Layer("a", 10.0, 30.0, 20.0, 0.0)
+    layer.set_bottom_px(50.0, mm_per_pixel=0.05)
+    assert layer.y_bottom_px == 50.0
+    assert layer.thickness_px == pytest.approx(40.0)
+    assert layer.thickness_mm == pytest.approx(2.0)
+
+
+def test_layer_set_thickness_px_moves_bottom_only():
+    layer = Layer("a", 10.0, 30.0, 20.0, 0.0)
+    layer.set_thickness_px(7.0, mm_per_pixel=0.1)
+    assert layer.y_top_px == 10.0
+    assert layer.y_bottom_px == 17.0
+    assert layer.thickness_px == 7.0
+    assert layer.thickness_mm == pytest.approx(0.7)
+
+
+def test_layer_set_thickness_mm_back_computes_px():
+    layer = Layer("a", 10.0, 30.0, 20.0, 0.0)
+    layer.set_thickness_mm(3.0, mm_per_pixel=0.1)
+    assert layer.thickness_px == pytest.approx(30.0)
+    assert layer.thickness_mm == pytest.approx(3.0)
+    assert layer.y_bottom_px == pytest.approx(40.0)
+
+
+def test_layer_set_thickness_mm_requires_calibration():
+    layer = Layer("a", 0.0, 10.0, 10.0, 0.0)
+    with pytest.raises(ValueError):
+        layer.set_thickness_mm(1.0, mm_per_pixel=None)
+    with pytest.raises(ValueError):
+        layer.set_thickness_mm(1.0, mm_per_pixel=0.0)
+
+
+def test_layer_rejects_negative_thickness():
+    layer = Layer("a", 0.0, 10.0, 10.0, 0.0)
+    with pytest.raises(ValueError):
+        layer.set_thickness_px(-1.0, mm_per_pixel=0.1)
+    with pytest.raises(ValueError):
+        layer.set_thickness_mm(-1.0, mm_per_pixel=0.1)
+
+
+def test_layer_set_thickness_preserves_direction_when_inverted():
+    # Bottom is "above" top in pixel coordinates (negative direction).
+    layer = Layer("a", 30.0, 10.0, 20.0, 0.0)
+    layer.set_thickness_px(50.0, mm_per_pixel=None)
+    assert layer.y_top_px == 30.0
+    # Direction preserved: new bottom should be top - 50.
+    assert layer.y_bottom_px == -20.0
+    assert layer.thickness_px == 50.0
+
+
+# ----------------------------------------------------------------------
+# CanvasStyle defaults
+# ----------------------------------------------------------------------
+
+
+def test_canvas_style_defaults():
+    from app.core.line_style import ArrowShape, CanvasStyle
+
+    style = CanvasStyle()
+    assert style.scale.color.startswith("#")
+    assert style.measure.color.startswith("#")
+    assert style.boundary.color.startswith("#")
+    assert style.scale.width >= 1
+    assert style.measure.arrow == ArrowShape.ARROW
+    assert style.boundary.arrow == ArrowShape.NONE
