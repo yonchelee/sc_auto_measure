@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NX 단면 두께 분석기 - yonchelee.com</title>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --primary-dark: #1d4ed8;
+            --bg: #0f172a;
+            --panel: #ffffff;
+            --panel-alt: #f1f5f9;
+            --text: #1e293b;
+            --text-light: #64748b;
+            --border: #cbd5e1;
+            --accent: #059669;
+            --danger: #dc2626;
+            --shadow: 0 2px 10px rgba(15, 23, 42, 0.12);
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body { height: 100%; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background: var(--panel-alt);
+            color: var(--text);
+            line-height: 1.5;
+            display: flex;
+            flex-direction: column;
+        }
+        .topbar {
+            background: linear-gradient(135deg, #1e3a5f 0%, #2563eb 100%);
+            color: #fff;
+            padding: 14px 22px;
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            box-shadow: var(--shadow);
+            flex: 0 0 auto;
+        }
+        .topbar h1 { font-size: 1.1rem; font-weight: 600; flex: 1; }
+        .topbar .back {
+            color: #e0e7ff; text-decoration: none; font-size: 0.9rem;
+            padding: 6px 12px; border-radius: 6px; transition: background 0.2s;
+        }
+        .topbar .back:hover { background: rgba(255,255,255,0.12); }
+        .topbar .version {
+            font-size: 0.78rem; background: rgba(255,255,255,0.18);
+            padding: 4px 10px; border-radius: 12px;
+        }
+        .layout {
+            flex: 1 1 auto; display: grid;
+            grid-template-columns: 1fr 360px;
+            gap: 16px; padding: 16px; min-height: 0;
+        }
+        .canvas-area {
+            background: var(--bg); border-radius: 10px;
+            overflow: hidden; position: relative; box-shadow: var(--shadow);
+        }
+        .drop-zone {
+            width: 100%; height: 100%; position: relative;
+            overflow: auto; display: flex;
+            justify-content: center; align-items: center;
+        }
+        .drop-zone.dragover {
+            outline: 3px dashed #60a5fa; outline-offset: -10px;
+            background: rgba(96, 165, 250, 0.08);
+        }
+        #main-canvas {
+            display: block; background: #1e293b;
+            cursor: grab; max-width: 100%; height: auto;
+        }
+        #main-canvas.mode-crosshair { cursor: crosshair; }
+        .drop-hint {
+            position: absolute; inset: 0; display: flex;
+            flex-direction: column; align-items: center; justify-content: center;
+            color: #cbd5e1; text-align: center; pointer-events: none;
+        }
+        .drop-hint.hidden { display: none; }
+        .drop-hint > * { pointer-events: auto; }
+        .hint-icon { font-size: 3rem; margin-bottom: 14px; }
+        .drop-hint p { margin: 4px 0; }
+        .drop-hint .hint-sub { font-size: 0.86rem; opacity: 0.8; }
+        .drop-hint a { color: #93c5fd; }
+        .drop-hint button {
+            margin-top: 14px; background: var(--primary); color: #fff;
+            border: none; padding: 10px 24px; border-radius: 8px;
+            font-size: 0.95rem; font-weight: 600; cursor: pointer;
+        }
+        .drop-hint button:hover { background: var(--primary-dark); }
+        .panel {
+            background: var(--panel); border-radius: 10px;
+            padding: 18px 16px; display: flex; flex-direction: column;
+            gap: 12px; box-shadow: var(--shadow); overflow-y: auto;
+        }
+        .panel h2 {
+            font-size: 1.05rem; color: var(--primary);
+            padding-bottom: 8px; border-bottom: 2px solid var(--border);
+        }
+        .status-box {
+            background: var(--panel-alt); border-radius: 8px;
+            padding: 10px 12px; font-size: 0.85rem;
+        }
+        .status-row { display: flex; justify-content: space-between; padding: 2px 0; }
+        .status-label { color: var(--text-light); }
+        #status-scale, #status-mode { font-weight: 600; }
+        .table-wrap {
+            flex: 1 1 auto; min-height: 160px; max-height: 340px;
+            overflow-y: auto; border: 1px solid var(--border); border-radius: 8px;
+        }
+        #measurements-table {
+            width: 100%; border-collapse: collapse; font-size: 0.82rem;
+        }
+        #measurements-table th {
+            background: var(--primary); color: #fff; padding: 8px 6px;
+            text-align: center; position: sticky; top: 0;
+            font-weight: 600; font-size: 0.78rem;
+        }
+        #measurements-table td {
+            padding: 8px 6px; border-bottom: 1px solid var(--border);
+            text-align: right; font-variant-numeric: tabular-nums;
+        }
+        #measurements-table td:first-child { text-align: left; font-weight: 600; }
+        #measurements-table tr:hover td { background: #eff6ff; }
+        #measurements-table tr.selected td { background: #dbeafe; }
+        #measurements-table td[contenteditable="true"] {
+            outline: 1px dashed var(--primary); outline-offset: -3px; background: #fefce8;
+        }
+        .empty-row td {
+            text-align: center !important; color: var(--text-light);
+            font-style: italic; padding: 40px 10px !important;
+        }
+        button {
+            font-family: inherit; font-size: 0.88rem; font-weight: 600;
+            padding: 10px 14px; border: none; border-radius: 7px;
+            cursor: pointer; background: var(--primary); color: #fff;
+            transition: background 0.15s, opacity 0.15s;
+        }
+        button:hover:not(:disabled) { background: var(--primary-dark); }
+        button:disabled { opacity: 0.45; cursor: not-allowed; }
+        button.secondary { background: #e2e8f0; color: var(--text); }
+        button.secondary:hover:not(:disabled) { background: #cbd5e1; }
+        button.primary { background: var(--accent); }
+        button.primary:hover:not(:disabled) { background: #047857; }
+        .btn-group { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .help-box {
+            background: var(--panel-alt); border-radius: 8px;
+            padding: 10px 12px; font-size: 0.82rem;
+        }
+        .help-box summary { cursor: pointer; font-weight: 600; color: var(--primary); padding: 4px 0; }
+        .help-box ol { margin: 10px 0 6px 20px; line-height: 1.8; }
+        .help-box .note { color: var(--text-light); font-size: 0.78rem; margin-top: 6px; }
+        .modal {
+            position: fixed; inset: 0; background: rgba(15, 23, 42, 0.6);
+            display: flex; justify-content: center; align-items: center; z-index: 1000;
+        }
+        .modal.hidden { display: none; }
+        .modal-box {
+            background: var(--panel); border-radius: 12px;
+            padding: 24px 28px; min-width: 340px; max-width: 90vw;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+        }
+        .modal-box h3 { font-size: 1.1rem; margin-bottom: 10px; color: var(--primary); }
+        .modal-box p { font-size: 0.9rem; color: var(--text-light); margin-bottom: 14px; }
+        .modal-box label { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 6px; }
+        .modal-box input[type="number"] {
+            width: 100%; font-size: 1rem; padding: 10px 12px;
+            border: 1px solid var(--border); border-radius: 7px; font-family: inherit;
+        }
+        .modal-box input[type="number"]:focus { outline: 2px solid var(--primary); outline-offset: -1px; }
+        .modal-buttons { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+        .toast {
+            position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+            background: var(--text); color: #fff; padding: 12px 22px;
+            border-radius: 24px; font-size: 0.9rem;
+            box-shadow: 0 6px 20px rgba(0,0,0,0.25); z-index: 2000; transition: opacity 0.3s;
+        }
+        .toast.hidden { opacity: 0; pointer-events: none; }
+        #loading-overlay {
+            position: fixed; inset: 0; background: rgba(15, 23, 42, 0.85);
+            z-index: 3000; display: flex; justify-content: center;
+            align-items: center; transition: opacity 0.4s;
+        }
+        #loading-overlay.hidden { opacity: 0; pointer-events: none; }
+        .loading-box {
+            background: #fff; padding: 30px 40px; border-radius: 12px;
+            text-align: center; box-shadow: 0 10px 40px rgba(0,0,0,0.4);
+        }
+        .loading-box p { margin: 4px 0; }
+        .loading-box .note { color: var(--text-light); font-size: 0.82rem; }
+        .spinner {
+            width: 40px; height: 40px; border: 4px solid #e2e8f0;
+            border-top-color: var(--primary); border-radius: 50%;
+            animation: spin 0.9s linear infinite; margin: 0 auto 14px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .sitefoot {
+            text-align: center; padding: 14px 20px; font-size: 0.82rem;
+            color: var(--text-light); flex: 0 0 auto;
+        }
+        .sitefoot a { color: var(--primary); }
+        .sitefoot .note { font-size: 0.76rem; margin-top: 4px; opacity: 0.7; }
+        @media (max-width: 900px) {
+            .layout { grid-template-columns: 1fr; grid-template-rows: 1fr auto; }
+            .panel { max-height: 50vh; }
+            .canvas-area { min-height: 400px; }
+        }
+    </style>
+</head>
+<body>
+
+<header class="topbar">
+    <a href="/" class="back">&larr; 홈으로</a>
+    <h1>NX 단면 두께 분석기</h1>
+    <span class="version">web v0.1</span>
+</header>
+
+<div id="loading-overlay">
+    <div class="loading-box">
+        <div class="spinner"></div>
+        <p>OpenCV.js 로딩 중...</p>
+        <p class="note">(최초 1회, 약 10MB)</p>
+    </div>
+</div>
+
+<main class="layout">
+    <section class="canvas-area">
+        <div id="drop-zone" class="drop-zone">
+            <canvas id="main-canvas"></canvas>
+            <div id="drop-hint" class="drop-hint">
+                <div class="hint-icon">📷</div>
+                <p><strong>이미지를 여기에 드래그 &amp; 드롭</strong></p>
+                <p class="hint-sub">또는 아래 버튼으로 파일 선택</p>
+                <button type="button" id="btn-open-file">파일 선택</button>
+                <input type="file" id="file-input" accept="image/*" hidden>
+                <p class="hint-sub" style="margin-top:14px;">
+                    샘플이 필요하면
+                    <a href="https://raw.githubusercontent.com/yonchelee/sc_auto_measure/main/docs/sample_section.png" download="sample_section.png">sample_section.png</a>
+                    다운로드
+                </p>
+            </div>
+        </div>
+    </section>
+
+    <aside class="panel">
+        <h2>Measurements</h2>
+        <div class="status-box">
+            <div class="status-row">
+                <span class="status-label">스케일:</span>
+                <span id="status-scale">미설정</span>
+            </div>
+            <div class="status-row">
+                <span class="status-label">모드:</span>
+                <span id="status-mode">대기</span>
+            </div>
+        </div>
+        <div class="table-wrap">
+            <table id="measurements-table">
+                <thead>
+                    <tr><th>Layer</th><th>Top<br>(px)</th><th>Bot<br>(px)</th><th>px</th><th>mm</th></tr>
+                </thead>
+                <tbody id="table-body">
+                    <tr class="empty-row">
+                        <td colspan="5">이미지를 불러오고<br>측정선을 그으면 채워집니다</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        <div class="btn-group">
+            <button type="button" id="btn-scale" disabled>기준선 설정</button>
+            <button type="button" id="btn-measure" disabled>측정선 그리기</button>
+        </div>
+        <div class="btn-group">
+            <button type="button" id="btn-delete" class="secondary" disabled>선택 행 삭제</button>
+            <button type="button" id="btn-clear" class="secondary" disabled>초기화</button>
+        </div>
+        <button type="button" id="btn-export" class="primary" disabled>📊 Excel로 내보내기</button>
+        <div class="help-box">
+            <details>
+                <summary>사용 방법</summary>
+                <ol>
+                    <li>이미지를 캔버스에 드래그&amp;드롭</li>
+                    <li><strong>기준선 설정</strong> 클릭 → 실제 길이 아는 두 점 클릭 → mm 입력</li>
+                    <li><strong>측정선 그리기</strong> 클릭 → 적층부 두 점 클릭 (수직 스냅, Shift=자유)</li>
+                    <li>자동 검출된 레이어를 확인 → <strong>Excel 내보내기</strong></li>
+                </ol>
+                <p class="note">💡 휠: 확대/축소 · 드래그: 이미지 스크롤</p>
+            </details>
+        </div>
+    </aside>
+</main>
+
+<footer class="sitefoot">
+    <p>Made by <a href="https://www.instagram.com/goycgo" target="_blank">@goycgo</a>
+       &nbsp;·&nbsp;
+       <a href="https://github.com/yonchelee/sc_auto_measure" target="_blank">GitHub</a>
+    </p>
+    <p class="note">브라우저 내부에서 전부 실행 · 이미지는 서버로 전송되지 않습니다</p>
+</footer>
+
+<div id="scale-dialog" class="modal hidden">
+    <div class="modal-box">
+        <h3>기준선 실제 길이 입력</h3>
+        <p>클릭한 두 점의 픽셀 거리: <b id="dialog-pixel-distance">-</b></p>
+        <label for="dialog-mm">실제 길이 (mm)</label>
+        <input type="number" id="dialog-mm" step="0.001" min="0.001" value="10">
+        <div class="modal-buttons">
+            <button type="button" id="dialog-cancel" class="secondary">취소</button>
+            <button type="button" id="dialog-ok" class="primary">확인</button>
+        </div>
+    </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script>
+    window.Module = {
+        onRuntimeInitialized() {
+            document.getElementById('loading-overlay').classList.add('hidden');
+            window.__cvReady = true;
+            document.dispatchEvent(new CustomEvent('cv-ready'));
+        }
+    };
+</script>
+<script async src="https://docs.opencv.org/4.9.0/opencv.js"></script>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+
+<script>
+(() => {
+    'use strict';
+
+    const state = {
+        image: null, imageName: null,
+        mode: 'IDLE', pendingPoint: null,
+        scale: { p1: null, p2: null, realMm: null, mmPerPixel: null },
+        measureLine: null,
+        layers: [],
+        view: { scale: 1, tx: 0, ty: 0 },
+        selectedRow: -1,
+    };
+
+    const dom = {
+        canvas: document.getElementById('main-canvas'),
+        dropZone: document.getElementById('drop-zone'),
+        dropHint: document.getElementById('drop-hint'),
+        btnOpenFile: document.getElementById('btn-open-file'),
+        fileInput: document.getElementById('file-input'),
+        btnScale: document.getElementById('btn-scale'),
+        btnMeasure: document.getElementById('btn-measure'),
+        btnDelete: document.getElementById('btn-delete'),
+        btnClear: document.getElementById('btn-clear'),
+        btnExport: document.getElementById('btn-export'),
+        tableBody: document.getElementById('table-body'),
+        statusScale: document.getElementById('status-scale'),
+        statusMode: document.getElementById('status-mode'),
+        scaleDialog: document.getElementById('scale-dialog'),
+        dialogPixelDistance: document.getElementById('dialog-pixel-distance'),
+        dialogMm: document.getElementById('dialog-mm'),
+        dialogOk: document.getElementById('dialog-ok'),
+        dialogCancel: document.getElementById('dialog-cancel'),
+        toast: document.getElementById('toast'),
+    };
+
+    const ctx = dom.canvas.getContext('2d');
+
+    let toastTimer = null;
+    function toast(msg, ms = 2400) {
+        dom.toast.textContent = msg;
+        dom.toast.classList.remove('hidden');
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => dom.toast.classList.add('hidden'), ms);
+    }
+
+    function loadImageFromFile(file) {
+        if (!file || !file.type.startsWith('image/')) { toast('이미지 파일이 아닙니다.'); return; }
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const img = new Image();
+            img.onload = () => {
+                state.image = img; state.imageName = file.name;
+                state.layers = [];
+                state.scale = { p1: null, p2: null, realMm: null, mmPerPixel: null };
+                state.measureLine = null; state.mode = 'IDLE'; state.pendingPoint = null;
+                resetView(); resizeCanvas(); render(); refreshUI();
+                dom.dropHint.classList.add('hidden');
+                toast('이미지 로드: ' + file.name);
+            };
+            img.onerror = () => toast('이미지 디코드 실패');
+            img.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
+    }
+
+    function resetView() {
+        if (!state.image) return;
+        const cw = dom.canvas.clientWidth, ch = dom.canvas.clientHeight;
+        const iw = state.image.naturalWidth, ih = state.image.naturalHeight;
+        const s = Math.min(cw / iw, ch / ih, 1);
+        state.view.scale = s;
+        state.view.tx = (cw - iw * s) / 2;
+        state.view.ty = (ch - ih * s) / 2;
+    }
+
+    function resizeCanvas() {
+        const rect = dom.dropZone.getBoundingClientRect();
+        const dpr = window.devicePixelRatio || 1;
+        dom.canvas.width = rect.width * dpr;
+        dom.canvas.height = rect.height * dpr;
+        dom.canvas.style.width = rect.width + 'px';
+        dom.canvas.style.height = rect.height + 'px';
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+
+    function canvasToImage(cx, cy) {
+        return { x: (cx - state.view.tx) / state.view.scale, y: (cy - state.view.ty) / state.view.scale };
+    }
+    function imageToCanvas(ix, iy) {
+        return { x: ix * state.view.scale + state.view.tx, y: iy * state.view.scale + state.view.ty };
+    }
+
+    function render() {
+        const w = dom.canvas.clientWidth, h = dom.canvas.clientHeight;
+        ctx.save(); ctx.fillStyle = '#1e293b'; ctx.fillRect(0, 0, w, h); ctx.restore();
+        if (!state.image) return;
+        ctx.save();
+        ctx.translate(state.view.tx, state.view.ty);
+        ctx.scale(state.view.scale, state.view.scale);
+        ctx.drawImage(state.image, 0, 0);
+        ctx.restore();
+        drawOverlays();
+    }
+
+    function drawOverlays() {
+        if (state.scale.p1 && state.scale.p2) {
+            drawLine(state.scale.p1, state.scale.p2, '#60a5fa', 2);
+            drawDot(state.scale.p1, '#60a5fa');
+            drawDot(state.scale.p2, '#60a5fa');
+        }
+        if (state.pendingPoint) drawDot(state.pendingPoint, '#fbbf24');
+        if (state.measureLine) drawLine(state.measureLine.p1, state.measureLine.p2, '#34d399', 2);
+        if (state.layers.length && state.measureLine) {
+            const { p1 } = state.measureLine;
+            const boundaries = state.layers.map(l => l.yTop);
+            boundaries.push(state.layers[state.layers.length - 1].yBot);
+            for (let i = 0; i < boundaries.length; i++) {
+                const cp = imageToCanvas(p1.x, boundaries[i]);
+                ctx.save(); ctx.strokeStyle = '#ef4444'; ctx.lineWidth = 2;
+                ctx.beginPath(); ctx.moveTo(cp.x - 24, cp.y); ctx.lineTo(cp.x + 24, cp.y); ctx.stroke();
+                ctx.fillStyle = '#ef4444'; ctx.font = '12px -apple-system, sans-serif';
+                ctx.fillText('b' + i, cp.x + 28, cp.y + 4); ctx.restore();
+            }
+        }
+    }
+
+    function drawLine(p1, p2, color, width) {
+        const a = imageToCanvas(p1.x, p1.y), b = imageToCanvas(p2.x, p2.y);
+        ctx.save(); ctx.strokeStyle = color; ctx.lineWidth = width;
+        ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke(); ctx.restore();
+    }
+    function drawDot(p, color) {
+        const a = imageToCanvas(p.x, p.y);
+        ctx.save(); ctx.fillStyle = color;
+        ctx.beginPath(); ctx.arc(a.x, a.y, 4, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+    }
+
+    function setMode(mode) {
+        state.mode = mode; state.pendingPoint = null;
+        if (mode === 'IDLE') {
+            dom.statusMode.textContent = '탐색';
+            dom.canvas.classList.remove('mode-crosshair');
+        } else if (mode === 'SET_SCALE') {
+            dom.statusMode.textContent = '기준선 설정 (두 점 클릭)';
+            dom.canvas.classList.add('mode-crosshair');
+        } else if (mode === 'DRAW_MEASURE_LINE') {
+            dom.statusMode.textContent = '측정선 그리기 (두 점 클릭)';
+            dom.canvas.classList.add('mode-crosshair');
+        }
+        render();
+    }
+
+    function refreshUI() {
+        const hasImage = !!state.image, hasLayers = state.layers.length > 0;
+        dom.btnScale.disabled = !hasImage;
+        dom.btnMeasure.disabled = !hasImage;
+        dom.btnClear.disabled = !hasLayers;
+        dom.btnDelete.disabled = !hasLayers || state.selectedRow < 0;
+        dom.btnExport.disabled = !hasLayers;
+        dom.statusScale.textContent = state.scale.mmPerPixel
+            ? state.scale.mmPerPixel.toFixed(5) + ' mm/px' : '미설정';
+        renderTable();
+    }
+
+    dom.canvas.addEventListener('mousedown', (e) => {
+        if (!state.image || e.button !== 0) return;
+        const rect = dom.canvas.getBoundingClientRect();
+        const cx = e.clientX - rect.left, cy = e.clientY - rect.top;
+        if (state.mode === 'IDLE') { panStart(cx, cy); return; }
+        const imgPt = canvasToImage(cx, cy);
+        if (!state.pendingPoint) { state.pendingPoint = imgPt; toast('두 번째 점을 클릭하세요'); render(); return; }
+        const p1 = state.pendingPoint;
+        let p2 = imgPt;
+        state.pendingPoint = null;
+        if (state.mode === 'SET_SCALE') {
+            state.scale.p1 = p1; state.scale.p2 = p2;
+            openScaleDialog(p1, p2); setMode('IDLE');
+        } else if (state.mode === 'DRAW_MEASURE_LINE') {
+            if (!e.shiftKey) p2 = { x: p1.x, y: p2.y };
+            state.measureLine = { p1, p2 }; setMode('IDLE'); runEdgeDetection();
+        }
+    });
+
+    let panning = null;
+    function panStart(cx, cy) {
+        panning = { cx, cy, tx: state.view.tx, ty: state.view.ty };
+        dom.canvas.style.cursor = 'grabbing';
+    }
+    window.addEventListener('mousemove', (e) => {
+        if (!panning) return;
+        const rect = dom.canvas.getBoundingClientRect();
+        state.view.tx = panning.tx + (e.clientX - rect.left - panning.cx);
+        state.view.ty = panning.ty + (e.clientY - rect.top - panning.cy);
+        render();
+    });
+    window.addEventListener('mouseup', () => { if (panning) { panning = null; dom.canvas.style.cursor = ''; } });
+
+    dom.canvas.addEventListener('wheel', (e) => {
+        if (!state.image) return;
+        e.preventDefault();
+        const rect = dom.canvas.getBoundingClientRect();
+        const cx = e.clientX - rect.left, cy = e.clientY - rect.top;
+        const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+        const imgPt = canvasToImage(cx, cy);
+        state.view.scale = Math.max(0.05, Math.min(20, state.view.scale * factor));
+        state.view.tx = cx - imgPt.x * state.view.scale;
+        state.view.ty = cy - imgPt.y * state.view.scale;
+        render();
+    }, { passive: false });
+
+    ['dragenter', 'dragover'].forEach(ev => {
+        dom.dropZone.addEventListener(ev, e => { e.preventDefault(); e.stopPropagation(); dom.dropZone.classList.add('dragover'); });
+    });
+    ['dragleave', 'drop'].forEach(ev => {
+        dom.dropZone.addEventListener(ev, e => { e.preventDefault(); e.stopPropagation(); dom.dropZone.classList.remove('dragover'); });
+    });
+    dom.dropZone.addEventListener('drop', e => { const f = e.dataTransfer?.files?.[0]; if (f) loadImageFromFile(f); });
+    dom.btnOpenFile.addEventListener('click', () => dom.fileInput.click());
+    dom.fileInput.addEventListener('change', e => { const f = e.target.files?.[0]; if (f) loadImageFromFile(f); dom.fileInput.value = ''; });
+
+    function openScaleDialog(p1, p2) {
+        const dist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+        dom.dialogPixelDistance.textContent = dist.toFixed(2) + ' px';
+        dom.dialogMm.value = '10';
+        dom.scaleDialog.classList.remove('hidden');
+        setTimeout(() => dom.dialogMm.focus(), 50);
+        dom.scaleDialog.dataset.pixelDistance = String(dist);
+    }
+    function closeScaleDialog() { dom.scaleDialog.classList.add('hidden'); }
+    dom.dialogCancel.addEventListener('click', () => { state.scale.p1 = null; state.scale.p2 = null; closeScaleDialog(); render(); });
+    dom.dialogOk.addEventListener('click', () => {
+        const dist = parseFloat(dom.scaleDialog.dataset.pixelDistance);
+        const mm = parseFloat(dom.dialogMm.value);
+        if (!(dist > 0) || !(mm > 0)) { toast('올바른 값을 입력하세요'); return; }
+        state.scale.realMm = mm; state.scale.mmPerPixel = mm / dist;
+        closeScaleDialog();
+        for (const l of state.layers) l.thicknessMm = l.thicknessPx * state.scale.mmPerPixel;
+        refreshUI(); render(); toast('스케일 보정: ' + state.scale.mmPerPixel.toFixed(5) + ' mm/px');
+    });
+    dom.dialogMm.addEventListener('keydown', e => { if (e.key === 'Enter') dom.dialogOk.click(); if (e.key === 'Escape') dom.dialogCancel.click(); });
+
+    dom.btnScale.addEventListener('click', () => setMode('SET_SCALE'));
+    dom.btnMeasure.addEventListener('click', () => {
+        if (!state.scale.mmPerPixel && !confirm('기준선이 설정되지 않았습니다. 계속하시겠습니까?\n(mm 값은 0으로 표시됩니다)')) return;
+        setMode('DRAW_MEASURE_LINE');
+    });
+    dom.btnClear.addEventListener('click', () => { state.layers = []; state.measureLine = null; state.selectedRow = -1; refreshUI(); render(); });
+    dom.btnDelete.addEventListener('click', () => {
+        if (state.selectedRow < 0) return;
+        state.layers.splice(state.selectedRow, 1);
+        state.layers.forEach((l, i) => { l.name = 'Layer ' + (i + 1); });
+        state.selectedRow = -1; refreshUI(); render();
+    });
+    dom.btnExport.addEventListener('click', exportXlsx);
+
+    function runEdgeDetection() {
+        if (!window.__cvReady) { toast('OpenCV.js 아직 로딩 중...'); return; }
+        if (!state.measureLine || !state.image) return;
+        const { p1, p2 } = state.measureLine;
+        const off = document.createElement('canvas');
+        off.width = state.image.naturalWidth; off.height = state.image.naturalHeight;
+        off.getContext('2d').drawImage(state.image, 0, 0);
+        let src, gray, blurred, edges;
+        try {
+            src = cv.imread(off);
+            gray = new cv.Mat(); cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+            blurred = new cv.Mat(); cv.GaussianBlur(gray, blurred, new cv.Size(3, 3), 0);
+            const data = blurred.data;
+            const sorted = Array.from(data).sort((a, b) => a - b);
+            const median = sorted[Math.floor(sorted.length / 2)];
+            const sigma = 0.33;
+            const low = Math.max(0, (1 - sigma) * median);
+            const high = Math.min(255, (1 + sigma) * median);
+            edges = new cv.Mat(); cv.Canny(blurred, edges, low, Math.max(low + 1, high));
+            const w = edges.cols, h = edges.rows;
+            const len = Math.max(Math.round(Math.max(Math.abs(p2.x - p1.x), Math.abs(p2.y - p1.y))) + 1, 2);
+            const hits = [], edgeData = edges.data;
+            for (let i = 0; i < len; i++) {
+                const t = i / (len - 1);
+                const xi = Math.min(w - 1, Math.max(0, Math.round(p1.x + (p2.x - p1.x) * t)));
+                const yi = Math.min(h - 1, Math.max(0, Math.round(p1.y + (p2.y - p1.y) * t)));
+                if (edgeData[yi * w + xi] > 0) hits.push(i);
+            }
+            const mergeGap = 2, groups = [];
+            for (const idx of hits) {
+                if (groups.length && idx - groups[groups.length - 1][groups[groups.length - 1].length - 1] <= mergeGap)
+                    groups[groups.length - 1].push(idx);
+                else groups.push([idx]);
+            }
+            const boundaryTs = groups.map(g => g.reduce((a, b) => a + b, 0) / g.length);
+            if (boundaryTs.length < 2) { toast('레이어를 찾지 못했습니다. 측정선 위치를 조정하세요.'); return; }
+            const total = len - 1;
+            const verticalDominant = Math.abs(p2.y - p1.y) >= Math.abs(p2.x - p1.x);
+            const tToY = t => p1.y + (p2.y - p1.y) * (t / total);
+            const layers = [];
+            for (let i = 0; i < boundaryTs.length - 1; i++) {
+                const yTop = tToY(boundaryTs[i]), yBot = tToY(boundaryTs[i + 1]);
+                let thicknessPx = verticalDominant ? Math.abs(yBot - yTop) : Math.abs(boundaryTs[i + 1] - boundaryTs[i]);
+                if (thicknessPx < 2) continue;
+                layers.push({
+                    name: 'Layer ' + (layers.length + 1), yTop, yBot, thicknessPx,
+                    thicknessMm: state.scale.mmPerPixel ? thicknessPx * state.scale.mmPerPixel : 0,
+                });
+            }
+            state.layers = layers; state.selectedRow = -1; refreshUI(); render();
+            toast(layers.length + '개 레이어 검출');
+        } catch (err) { console.error(err); toast('검출 실패: ' + err.message);
+        } finally { if (src) src.delete(); if (gray) gray.delete(); if (blurred) blurred.delete(); if (edges) edges.delete(); }
+    }
+
+    function renderTable() {
+        if (state.layers.length === 0) {
+            dom.tableBody.innerHTML = '<tr class="empty-row"><td colspan="5">이미지를 불러오고<br>측정선을 그으면 채워집니다</td></tr>';
+            return;
+        }
+        dom.tableBody.innerHTML = state.layers.map((l, i) =>
+            '<tr' + (i === state.selectedRow ? ' class="selected"' : '') + ' data-row="' + i + '">' +
+            '<td contenteditable="true">' + esc(l.name) + '</td>' +
+            '<td>' + l.yTop.toFixed(1) + '</td><td>' + l.yBot.toFixed(1) + '</td>' +
+            '<td>' + l.thicknessPx.toFixed(1) + '</td><td>' + l.thicknessMm.toFixed(3) + '</td></tr>'
+        ).join('');
+        dom.tableBody.querySelectorAll('tr').forEach(tr => {
+            const idx = parseInt(tr.dataset.row, 10);
+            tr.addEventListener('click', e => { if (!e.target.isContentEditable) { state.selectedRow = idx; refreshUI(); } });
+            const nc = tr.querySelector('td[contenteditable]');
+            if (nc) {
+                nc.addEventListener('blur', () => { state.layers[idx].name = nc.textContent.trim() || 'Layer ' + (idx + 1); });
+                nc.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); nc.blur(); } });
+            }
+        });
+    }
+    function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+    function exportXlsx() {
+        if (!state.layers.length) { toast('내보낼 데이터가 없습니다'); return; }
+        if (typeof XLSX === 'undefined') { toast('SheetJS 로딩 중...'); return; }
+        const rows = [
+            ['Image', state.imageName || ''],
+            ['mm per pixel', state.scale.mmPerPixel || 'n/a'],
+            [],
+            ['Layer', 'Top (px)', 'Bottom (px)', 'Thickness (px)', 'Thickness (mm)'],
+        ];
+        for (const l of state.layers) rows.push([l.name, rd(l.yTop,2), rd(l.yBot,2), rd(l.thicknessPx,2), rd(l.thicknessMm,4)]);
+        const ws = XLSX.utils.aoa_to_sheet(rows);
+        ws['!cols'] = [{wch:18},{wch:12},{wch:12},{wch:15},{wch:15}];
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, (state.imageName||'Measurement').replace(/\.[^.]+$/,'').slice(0,31));
+        XLSX.writeFile(wb, (state.imageName||'measurements').replace(/\.[^.]+$/,'') + '_measurements.xlsx');
+        toast('Excel 파일 다운로드 완료');
+    }
+    function rd(v, n) { const p = Math.pow(10, n); return Math.round((v||0)*p)/p; }
+
+    window.addEventListener('resize', () => { resizeCanvas(); if (state.image) render(); });
+    resizeCanvas(); render(); refreshUI();
+})();
+</script>
+
+</body>
+</html>
