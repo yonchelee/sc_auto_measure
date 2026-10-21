@@ -137,6 +137,8 @@ class LineStyleDialog(QDialog):
         self._style = style
 
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(16)
 
         self._scale_group = _LineStyleGroup(
             "기준선 (Scale)", style.scale, with_arrow=True, parent=self
@@ -160,6 +162,8 @@ class LineStyleDialog(QDialog):
         if measure_endpoints is not None:
             self._pos_group = QGroupBox("측정선 위치 (px)", self)
             form = QFormLayout(self._pos_group)
+            form.setSpacing(10)
+            form.setContentsMargins(8, 8, 8, 8)
             p1, p2 = measure_endpoints
             for label, value in (
                 ("시작 X", p1.x()),
@@ -180,7 +184,8 @@ class LineStyleDialog(QDialog):
                 "기존 레이어 측정값은 유지되며 다시 검출하려면\n"
                 "측정선 그리기를 다시 실행하세요."
             )
-            note.setStyleSheet("color: #888;")
+            note.setProperty("role", "caption")
+            note.setStyleSheet("color: #6E6E73; font-size: 12px;")
             layout.addWidget(note)
 
         buttons = QDialogButtonBox(

@@ -53,7 +53,7 @@ class ImageCanvas(QGraphicsView):
         self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
         self.setAcceptDrops(True)
         self.setMinimumWidth(600)
-        self.setBackgroundBrush(QBrush(QColor(40, 40, 40)))
+        self.setBackgroundBrush(QBrush(QColor("#F5F5F7")))
 
         self._pixmap_item: Optional[QGraphicsPixmapItem] = None
         self._image_bgr: Optional[np.ndarray] = None
